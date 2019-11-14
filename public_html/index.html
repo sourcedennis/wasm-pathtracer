@@ -1,9 +1,106 @@
 <!DOCTYPE html>
 <html>
   <head>
+    <meta charset="UTF-8">
+    <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+    }
+    #sidepanel {
+      width: 210pt;
+      padding: 20pt;
+      background: white;
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      right: 0;
+    }
+    #sidepanel h2 {
+      margin: 0;
+      font-family: OpenSansSemiBold, Arial;
+    }
+    #sidepanel div {
+      margin-bottom: 10pt;
+      margin-top: 10pt;
+    }
+    #sidepanel div span {
+      margin-bottom: 4pt;
+      display: block;
+      font-family: OpenSansLight, Arial;
+    }
+    #sidepanel hr {
+      border: .5px solid black;
+    }
+    button.choice {
+      padding-left: 30pt;
+      padding-right: 12pt;
+      padding-top: 6pt;
+      padding-bottom: 7pt;
+
+      border: none;
+      border-radius: 10px;
+      background-color: #1072f6;
+      color: #F2F2F2;
+      font-family: OpenSansSemiBold;
+      width: 68pt;
+      text-align: left;
+      font-size: 10pt;
+      background-position: 4pt 0;
+      background-repeat: no-repeat;
+      background-size: auto 100%;
+      margin: 0;
+    }
+    button.selected {
+      background-image: url( 'images/selected.png' );
+      background-position: 4pt 0;
+      background-repeat: no-repeat;
+      background-size: auto 100%;
+      background-color: #0044e3;
+    }
+    button.choice.left {
+      border-top-right-radius: 0;
+      border-bottom-right-radius: 0;
+      margin-right: 0;
+    }
+    button.choice.top {
+      border-bottom-right-radius: 0;
+      border-bottom-left-radius: 0;
+    }
+    button.choice.right {
+      border-top-left-radius: 0;
+      border-bottom-left-radius: 0;
+      margin-left: 0;
+      border-left: 1px solid white;
+    }
+    button.choice.bottom {
+      border-top-right-radius: 0;
+      border-top-left-radius: 0;
+      border-top: 1px solid white;
+    }
+    button.choice.middle {
+      border-radius: 0;
+      border-left: 1px solid white;
+    }
+    div.button_row {
+      margin: 0;
+      padding: 0;
+      display: block;
+    }
+    @font-face {
+      font-family: OpenSansLight;
+      src: url("fonts/OpenSans-Regular.ttf");
+    }
+    @font-face {
+      font-family: OpenSansSemiBold;
+      src: url("fonts/OpenSans-SemiBold.ttf");
+    }
+    </style>
     <title>Raytracer</title>
   </head>
   <body>
-    <canvas style="border: 1px solid black;" width=1200 height=700></canvas>
+    <canvas width=1200 height=700></canvas>
+    <div id="sidepanel"><!--This is filled by Elm in src_ts/Main.elm--></div>
   </body>
 </html>

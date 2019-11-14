@@ -22,6 +22,22 @@ impl Vec3 {
   pub fn dot( self, rhs : Vec3 ) -> f64 {
     self.x * rhs.x + self.y * rhs.y + self.z * rhs.z
   }
+
+  pub fn len( self ) -> f64 {
+    self.len_sq( ).sqrt( )
+  }
+
+  pub fn len_sq( self ) -> f64 {
+    self.dot( self )
+  }
+}
+
+impl ops::Neg for Vec3 {
+  type Output = Vec3;
+
+  fn neg( self ) -> Vec3 {
+    Vec3::new( -self.x, -self.y, -self.z )
+  }
 }
 
 impl ops::Add< Vec3 > for Vec3 {
