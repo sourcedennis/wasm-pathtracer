@@ -21,15 +21,6 @@ module.exports =
           ]
         },
         {
-          test: /\.wasm$/,
-          use: [{
-            loader: 'raw-loader'
-          }],
-          exclude: [
-            /(node_modules)/,
-          ]
-        },
-        {
           test: /\.elm$/,
           exclude: [/elm-stuff/, /node_modules/],
           use: {
@@ -56,27 +47,5 @@ module.exports =
         compress: true,
         port: 9000
       }
-  },
-  {
-    entry: path.resolve(__dirname, './src_ts_worker/index.ts' ),
-    output: {
-        path: path.resolve(__dirname, 'dist'),
-        filename: 'worker.js',
-    },
-    module: {
-      rules: [{
-        test: /\.(tsx|ts)$/,
-        use: [{
-          loader: 'ts-loader'
-        }],
-        exclude: [
-          /(node_modules)/,
-        ]
-      }]
-    },
-    resolve: {
-      extensions: [ '.tsx', '.ts', '.js', '.wasm' ]
-    },
-    mode: 'production',
   }
 ];

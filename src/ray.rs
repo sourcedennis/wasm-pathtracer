@@ -12,39 +12,21 @@ impl Ray {
     Ray { origin, dir }
   }
 
-  pub fn at( self, distance : f64 ) -> Vec3 {
+  pub fn at( self, distance : f32 ) -> Vec3 {
     self.origin + distance * self.dir
   }
 }
 
 #[derive(Clone,Copy)]
 pub struct Hit {
-  pub distance : f64,
-  pub normal   : Vec3
+  pub distance    : f32,
+  pub normal      : Vec3,
+  pub mat         : Material,
+  pub is_entering : bool
 }
 
 impl Hit {
-  pub fn new( distance : f64, normal : Vec3 ) -> Hit {
-    Hit { distance, normal }
-  }
-}
-
-#[derive(Clone,Copy)]
-pub struct MatHit {
-  pub hit : Hit,
-  pub mat : Material
-}
-
-impl MatHit {
-  pub fn new( hit : Hit, mat : Material ) -> MatHit {
-    MatHit { hit, mat }
-  }
-
-  pub fn fromHit( hit : Option< Hit >, mat : Material ) -> Option< MatHit > {
-    if let Some( h ) = hit {
-      Some( MatHit::new( h, mat ) )
-    } else {
-      None
-    }
+  pub fn new( distance : f32, normal : Vec3, mat : Material, is_entering : bool ) -> Hit {
+    Hit { distance, normal, mat, is_entering }
   }
 }

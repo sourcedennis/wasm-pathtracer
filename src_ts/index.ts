@@ -1,25 +1,191 @@
-import { RaytraceTarget } from './offscreen_target';
-import { RenderManager, BlockRenderer, RenderConfig } from './render_manager';
-import { Rect4 } from 'rect4';
+import { Observable, XObservable } from './observable';
 import { Elm } from './Main.elm';
-
-function timeout( t : number ): Promise< void > {
-  return new Promise( ( fResolve, fReject ) => {
-    setTimeout( ( ) => fResolve( ), t );
-  } );
-}
 
 function clamp( x : number, minVal : number, maxVal : number ): number {
   return Math.min( maxVal, Math.max( x, minVal ) );
+}
+
+class Point2 {
+  public readonly x : number;
+  public readonly y : number;
+
+  public constructor( x : number, y : number ) {
+    this.x = x;
+    this.y = y;
+  }
+}
+
+class EmptyPromise< T > {
+  public  readonly promise : Promise< T >;
+  private          _fResolve: ( v: T | PromiseLike< T > ) => void;
+
+  public constructor( ) {
+    this.promise = new Promise( ( fResolve, fReject ) => {
+      this._fResolve = fResolve;
+    } );
+  }
+
+  public fulfil( v: T ): void {
+    this._fResolve( v );
+  }
+}
+
+class Job {
+  private          _isDone : boolean;
+  private readonly _onDone : EmptyPromise< void >;
+
+  public constructor( f: ( ) => boolean ) {
+    this._isDone = false;
+    this._onDone = new EmptyPromise( );
+
+    const fJob = ( ) => {
+      if ( !this._isDone ) {
+        this._isDone = !f( );
+        setTimeout( ( ) => fJob( ), 0 );
+      }
+      if ( this._isDone ) {
+        this._onDone.fulfil( );
+      }
+    }
+
+    fJob( );
+  }
+
+  public onDone( ): Promise< void > {
+    return this._onDone.promise;
+  }
+
+  public terminate( ): void {
+    this._isDone = true;
+  }
+}
+
+class RenderTarget {
+  public readonly target : HTMLCanvasElement;
+
+  private readonly _instance : WebAssembly.Instance;
+  private readonly _ctx      : CanvasRenderingContext2D;
+  private readonly _imgData  : ImageData;
+  private readonly _onUpdate : XObservable< number >;
+  private          _isInit   : boolean;
+  private          _pixels   : Uint8Array;
+  private          _job      : Job | null;
+  private          _isDepth  : boolean;
+  private          _maxReflect : number;
+
+  public constructor( instance : WebAssembly.Instance, width : number, height : number, isDepth : boolean ) {
+    this.target        = document.createElement( 'canvas' );
+    this.target.width  = width;
+    this.target.height = height;
+    this._instance     = instance;
+    this._ctx          = < CanvasRenderingContext2D > this.target.getContext( '2d' );
+    this._imgData      = this._ctx.createImageData( width, height );
+    this._onUpdate     = new XObservable( );
+    this._isInit       = false;
+    this._job          = null;
+    this._isDepth      = isDepth;
+    this._maxReflect   = 1;
+  }
+
+  public updateRenderType( isDepth : boolean ) {
+    this._isDepth = isDepth;
+    this._isInit  = false;
+    this.restart( );
+  }
+
+  public updateReflect( reflect : number ) {
+    this._maxReflect = reflect;
+    this._isInit     = false;
+    this.restart( );
+  }
+
+  public width( ): number {
+    return this.target.width;
+  }
+
+  public height( ): number {
+    return this.target.height;
+  }
+
+  public onUpdate( ): Observable< number > {
+    return this._onUpdate.observable;
+  }
+
+  public restart( ): void {
+    let isRestarting = this._isInit;
+
+    if ( this._job ) {
+      this._job.terminate( );
+      this._job = null;
+      this._pixels.fill( 0 );
+      this._onUpdate.next( 0 );
+    }
+
+    let numDone = 0;
+    let w = this.target.width;
+    let h = this.target.height;
+
+    this._job = new Job( ( ) => {
+      if ( !this._isInit ) {
+        (<any>this._instance.exports).init( w, h, this._isDepth, this._maxReflect );
+        this._setupRays( );
+        this._pixels = new Uint8Array( (<any>this._instance.exports).memory.buffer, (<any>this._instance.exports).results( ), w * h * 4 );
+        this._isInit = true;
+        return true;
+      } else if ( isRestarting ) {
+        isRestarting = false;
+        (<any>this._instance.exports).reset( );
+        return true;
+      } else if ( numDone < w * h ) {
+        let numInPack = Math.min( w * h - numDone, 10000 );
+        (<any>this._instance.exports).compute( numInPack );
+        numDone += numInPack;
+
+        return numDone < w * h;
+      } else {
+        return false;
+      }
+    } );
+    let renderInterval = setInterval( ( ) => {
+      this._imgData.data.set( this._pixels, 0 );
+      this._ctx.putImageData( this._imgData, 0, 0 );
+      this._onUpdate.next( numDone / ( w * h ) );
+    }, 100 );
+    this._job.onDone( ).then( ( ) => {
+      clearInterval( renderInterval );
+      this._imgData.data.set( this._pixels, 0 );
+      this._ctx.putImageData( this._imgData, 0, 0 );
+      this._onUpdate.next( 1 );
+    } );
+
+  }
+
+  private _setupRays( ): void {
+    let w = this.target.width;
+    let h = this.target.height;
+    
+    let rays = new Array< Point2 >( w * h );
+    for ( let y = 0; y < h; y++ ) {
+      for ( let x = 0; x < w; x++ ) {
+        rays[ y * w + x ] = new Point2( x, y );
+      }
+    }
+    shuffle( rays );
+
+    let rayDst = new Uint32Array((<any>this._instance.exports).memory.buffer, (<any>this._instance.exports).ray_store( ), w * h * 2 );
+
+    for ( let i = 0; i < w * h; i++ ) {
+      rayDst[ i * 2 + 0 ] = rays[ i ].x;
+      rayDst[ i * 2 + 1 ] = rays[ i ].y;
+    }
+  }
 }
 
 class CanvasElement {
   private readonly _canvas : HTMLCanvasElement;
   private readonly _ctx    : CanvasRenderingContext2D;
 
-  private          _target : RaytraceTarget | undefined;
-
-  private          _markedRegions: Rect4[];
+  private          _target : RenderTarget | null;
 
   private _xOff : number;
   private _yOff : number;
@@ -27,8 +193,7 @@ class CanvasElement {
   public constructor( canvas : HTMLCanvasElement ) {
     this._canvas = canvas;
     this._ctx    = <CanvasRenderingContext2D> canvas.getContext( '2d' );
-    this._target = undefined;
-    this._markedRegions = [];
+    this._target = null;
 
     this._xOff = 0;
     this._yOff = 0;
@@ -54,53 +219,31 @@ class CanvasElement {
 
   public recenter( ): void {
     if ( this._target ) {
-      this._xOff = Math.round( ( this._canvas.width - this._target.width ) / 2 );
-      this._yOff = Math.round( ( this._canvas.height - this._target.height ) / 2 );
+      this._xOff = Math.round( ( this._canvas.width - this._target.width( ) ) / 2 );
+      this._yOff = Math.round( ( this._canvas.height - this._target.height( ) ) / 2 );
       this.render( );
     }
   }
 
   public reclamp( ): void {
-    let target = <RaytraceTarget> this._target;
-    if ( target.width < this._canvas.width ) {
-      this._xOff = clamp( this._xOff, 0, this._canvas.width - target.width );
+    let target = <RenderTarget> this._target;
+    if ( target.width( ) < this._canvas.width ) {
+      this._xOff = clamp( this._xOff, 0, this._canvas.width - target.width( ) );
     } else {
-      this._xOff = clamp( this._xOff, this._canvas.width - target.width, 0 );
+      this._xOff = clamp( this._xOff, this._canvas.width - target.width( ), 0 );
     }
-    if ( target.height < this._canvas.height ) {
-      this._yOff = clamp( this._yOff, 0, this._canvas.height - target.height );
+    if ( target.height( ) < this._canvas.height ) {
+      this._yOff = clamp( this._yOff, 0, this._canvas.height - target.height( ) );
     } else {
-      this._yOff = clamp( this._yOff, this._canvas.height - target.height, 0 );
+      this._yOff = clamp( this._yOff, this._canvas.height - target.height( ), 0 );
     }
     this.render( );
   }
 
-  public updateTarget( target : RaytraceTarget ): void {
+  public updateTarget( target : RenderTarget ): void {
     this._target = target;
-    this._xOff = Math.round( ( this._canvas.width - target.width ) / 2 );
-    this._yOff = Math.round( ( this._canvas.height - target.height ) / 2 );
-    this.render( );
-  }
-
-  public mark( rect : Rect4 ): void {
-    this._markedRegions.push( rect );
-    this.render( );
-  }
-
-  public unmark( rect : Rect4 ): void {
-    for ( let i = 0; i < this._markedRegions.length; i++ ) {
-      // Only use '===' here because I know they'll always be the same reference here
-      // Otherwise deep checking should be used
-      if ( this._markedRegions[ i ] === rect ) {
-        this._markedRegions.splice( i, 1 );
-        this.render( );
-        return;
-      }
-    }
-  }
-
-  public unmarkAll( ): void {
-    this._markedRegions = [];
+    this._xOff = Math.round( ( this._canvas.width - target.width( ) ) / 2 );
+    this._yOff = Math.round( ( this._canvas.height - target.height( ) ) / 2 );
     this.render( );
   }
 
@@ -111,18 +254,13 @@ class CanvasElement {
     if ( this._target ) {
       this._renderGrid( );
 
-      this._ctx.drawImage( this._target.image( ), this._xOff, this._yOff );
-
-      for ( let r of this._markedRegions ) {
-        this._ctx.strokeStyle = 'red';
-        this._ctx.strokeRect( this._xOff + r.x + .5, this._yOff + r.y + .5, r.width - 1, r.height - 1 );
-      }
+      this._ctx.drawImage( this._target.target, this._xOff, this._yOff );
     }
   }
 
   private _renderGrid( ): void {
-    let gridWidth  = ( <RaytraceTarget> this._target ).width;
-    let gridHeight = ( <RaytraceTarget> this._target ).height;
+    let gridWidth  = ( <RenderTarget> this._target ).width( );
+    let gridHeight = ( <RenderTarget> this._target ).height( );
 
     let cellSize = 10;
 
@@ -142,117 +280,64 @@ class CanvasElement {
   }
 }
 
-class WorkerRenderer implements BlockRenderer {
-  private readonly _worker : Worker;
+document.addEventListener( 'DOMContentLoaded', ev => {
+  const width  = 800;
+  const height = 500;
 
-  private          _jobNr : number;
-  private readonly _jobs  : Map< number, ( _ : any ) => any >;
+  const canvas  = document.getElementsByTagName( 'canvas' )[ 0 ];
+  const ctx     = <CanvasRenderingContext2D> canvas.getContext( '2d' );
 
-  public constructor( wasmModule : any ) {
-    this._worker = new Worker( 'worker.js' );
-    this._worker.postMessage( { type: 'init', module: wasmModule } );
-    this._worker.addEventListener( 'message', ev => {
-      let msg = ev.data;
-      let fResolve = <any> this._jobs.get( msg.jobId );
-      this._jobs.delete( msg.jobId );
-      fResolve( msg.data );
+  (<any>WebAssembly).instantiateStreaming(fetch('pkg/index_bg.wasm'), { } ).then( compiledMod => {
+    const instance = compiledMod.instance;
+    let target = new RenderTarget( instance, width, height, false );
+    target.restart( );
+
+    let canvasElem = new CanvasElement( canvas );
+    canvasElem.updateTarget( target );
+    
+    onResize( );
+    setTimeout( ( ) => { onResize( ); canvasElem.recenter( ); }, 0 );
+    window.addEventListener( 'resize', ev => onResize( ) );
+
+    let settingsPanel = document.getElementById( 'sidepanel' );
+    let startTime = Date.now( );
+    const app = Elm.Main.init( { node: settingsPanel } );
+    app.ports.callRestart.subscribe( ( ) => {
+      startTime = Date.now( );
+      target.restart( );
+    } );
+    app.ports.updateRenderType.subscribe( t => {
+      target.updateRenderType( t === 1 );
+      startTime = Date.now( );
+    } );
+    app.ports.updateReflectionDepth.subscribe( d => {
+      target.updateReflect( d );
+      startTime = Date.now( );
     } );
 
-    this._jobNr = 0;
-    this._jobs  = new Map( );
-  }
-
-  public setScene( width : number, height : number ): Promise< void > {
-    return new Promise( ( fResolve, fReject ) => {
-      let jobId = this._jobNr;
-      this._jobs.set( jobId, fResolve );
-      this._jobNr++;
-
-      this._worker.postMessage( { type: 'call_setup_scene', jobId, width, height } );
+    target.onUpdate( ).subscribe( p => {
+      canvasElem.render( );
+      if ( p === 1 ) {
+        app.ports.doneProgress.send( ( Date.now( ) - startTime ) / 1000 );
+      } else {
+        app.ports.updateProgress.send( Math.round( p * 100 ) );
+      }
     } );
-  }
 
-  public renderBlock( x : number, y : number, width : number, height : number, antiAlias : number ): Promise< Uint8Array > {
-    return new Promise( ( fResolve, fReject ) => {
-      let jobId = this._jobNr;
-      this._jobs.set( jobId, fResolve );
-      this._jobNr++;
+    function onResize( ) {
+      canvas.height = document.body.clientHeight;
+      canvas.width = document.body.clientWidth - 250 / (3 / 4);
+      canvasElem.reclamp( );
+    }
+  } );
 
-      this._worker.postMessage( { type: 'call_compute', jobId, x, y, width, height, antiAlias } );
-    } );
-  }
+} );
 
-  public terminate( ): void {
-    this._worker.terminate( );
+function shuffle< T >( arr : T[] ): void {
+  for ( let i = 0; i < arr.length; i++ ) {
+    const newI  = Math.floor( Math.random( ) * arr.length );
+    const tmp   = arr[ i ];
+    arr[ i ]    = arr[ newI ];
+    arr[ newI ] = tmp;
   }
 }
-
-(<any>WebAssembly).compileStreaming(fetch('pkg/index_bg.wasm')).then( compiledMod => {
-  
-  let blockSize = 128;
-  let width     = 800;
-  let height    = 500;
-  let antiAlias = 1;
-  let numCores  = 1;
-  let isBandless = false;
-
-  let manager = new RenderManager( ( ) => new WorkerRenderer( compiledMod ), numCores );
-  //let manager = new RenderManager( ( ) => new SimpleRenderer( ) );
-  let canvas  = document.getElementsByTagName( 'canvas' )[ 0 ];
-  let canvasElem = new CanvasElement( canvas );
-
-  manager.on( 'queued' ).subscribe( ev => {
-    canvasElem.mark( ev.rect );
-  } );
-  manager.on( 'unqueued' ).subscribe( ev => {
-    canvasElem.unmark( ev.rect );
-  } );
-  manager.on( 'progress' ).subscribe( ev => {
-    canvasElem.unmark( ev.rect );
-  } );
-  manager.on( 'done' ).subscribe( ev => {
-    //timeout( 10 ).then( ( ) => alert( 'done!' ) );
-    console.log( 'duration', ev.duration );
-  } );
-  manager.start( new RenderConfig( blockSize, width, height, antiAlias, isBandless ) );
-
-  canvasElem.updateTarget( <RaytraceTarget> manager.target );
-
-  timeout( 0 ).then( ( ) => {
-    canvas.height = document.body.clientHeight;
-    canvas.width = document.body.clientWidth - 250 / (3 / 4);
-    canvasElem.recenter( );
-  } );
-  canvas.height = document.body.clientHeight;
-  canvas.width = document.body.clientWidth - 250 / (3 / 4);
-
-  window.addEventListener( 'resize', ev => {
-    canvas.height = document.body.clientHeight;
-    canvas.width = document.body.clientWidth - 250 / (3 / 4);
-    canvasElem.reclamp( );
-  } );
-
-  let settingsPanel = document.getElementById( 'sidepanel' );
-  const app = Elm.Main.init( { node: settingsPanel } );
-  app.ports.setAntiAlias.subscribe( aa => {
-    antiAlias = aa;
-    canvasElem.unmarkAll( );
-    manager.start( new RenderConfig( blockSize, width, height, antiAlias, isBandless ) );
-    canvasElem.updateTarget( <RaytraceTarget> manager.target );
-  });
-  app.ports.setBlockSize.subscribe( bs => {
-    blockSize = bs;
-    canvasElem.unmarkAll( );
-    manager.start( new RenderConfig( blockSize, width, height, antiAlias, isBandless ) );
-    canvasElem.updateTarget( <RaytraceTarget> manager.target );
-  } );
-  app.ports.setBanding.subscribe( b => {
-    isBandless = b;
-    ( < RaytraceTarget > manager.target ).enableBandless( b );
-    canvasElem.render( );
-  } );
-  app.ports.setNumCores.subscribe( c => {
-    numCores = c;
-    manager.setNumCores( numCores );
-  } );
-} );

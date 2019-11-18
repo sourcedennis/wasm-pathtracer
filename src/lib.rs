@@ -1,184 +1,264 @@
-//extern crate rand;
-
 mod vec3;
 mod ray;
-mod primitives;
+mod scene;
 mod math;
 mod material;
 
 use wasm_bindgen::prelude::*;
 use vec3::Vec3;
-use ray::{Ray, Hit, MatHit};
-use primitives::sphere::{hit_sphere};
-use primitives::plane::{hit_plane};
+use ray::{Ray, Hit};
 use material::{Color3, Material};
 use math::{clamp};
+use std::ptr;
+use scene::{Tracable, Light, Scene, Sphere, Plane, AABB};
 
 // Z points INTO the screen. -Z points to the eye
 
-#[wasm_bindgen]
-extern "C" {
-    fn alert(s: &str);
 
-    #[wasm_bindgen(js_namespace = console)]
-    fn log(s: &str);
+static mut CONFIG : Option< Config > = None;
+
+struct Config {
+  viewport_width   : u32,
+  viewport_height  : u32,
+  aspect_ratio     : f32,
+  is_depth         : bool,
+  resultbuffer     : Vec< u8 >,
+  rays             : Vec< ( u32, u32 ) >,
+  scene            : Scene,
+  num_indices_done : usize,
+  max_reflect      : u32
 }
 
-static mut VIEWPORT_WIDTH  : u32 = 0;
-static mut VIEWPORT_HEIGHT : u32 = 0;
-
-static EPSILON : f64 = 0.00001;
-
 #[wasm_bindgen]
-pub fn init( width: u32, height: u32 ) {
+pub fn init( width : u32, height : u32, is_depth : u32, max_reflect : u32 ) {
   unsafe {
-    VIEWPORT_WIDTH  = width;
-    VIEWPORT_HEIGHT = height;
+    CONFIG = Some( Config {
+      viewport_width:   width
+    , viewport_height:  height
+    , aspect_ratio:     width as f32 / height as f32
+    , is_depth:         is_depth != 0
+    , resultbuffer:     vec![0; (width*height*4) as usize]
+    , rays:             vec![(0,0); (width*height) as usize]
+    , scene:            setup_scene( )
+    , num_indices_done: 0
+    , max_reflect
+    } );
   }
 }
 
 #[wasm_bindgen]
-pub fn compute( vp_x: u32, vp_y: u32, width: u32, height: u32, anti_alias: u32 ) -> Vec< u8 > {
-  let mut v = Vec::with_capacity( ( width * height * 3 ) as usize );
-  /*for bundle in rays( vp_x, vp_y, width, height, anti_alias ) {
-    let mut colors = Vec::new( );
-    for r in bundle {
-      colors.push( trace_ray_color( r ).clamp( ) );
+pub fn ray_store( ) -> *mut (u32, u32) {
+  unsafe {
+    if let Some( ref mut conf ) = CONFIG {
+      conf.rays.as_mut_ptr( )
+    } else {
+      panic!( "init not called" )
     }
-    let avg_color = Color3::avg( &colors );
-
-    v.push( ( avg_color.red * 255.0 ) as u8 );
-    v.push( ( avg_color.green * 255.0 ) as u8 );
-    v.push( ( avg_color.blue * 255.0 ) as u8 );
-  }*/
-  v
+  }
 }
 
 #[wasm_bindgen]
-pub fn compute_depths( vp_x: u32, vp_y: u32, width: u32, height: u32, anti_alias: u32 ) -> Vec< u8 > {
-  let mut v = Vec::with_capacity( ( width * height * 3 ) as usize );
-  for bundle in rays( vp_x, vp_y, width, height, anti_alias ) {
-    let mut sum = 0.0_f64;
-    for r in &bundle {
-      let c_val =
-        if let Some( h ) = trace_ray_depth( *r ) {
-          clamp( 1.0 - ( h - 3.0 ) / 4.0, 0.0, 1.0 )
+pub fn results( ) -> *const u8 {
+  unsafe {
+    if let Some( ref conf ) = CONFIG {
+      conf.resultbuffer.as_ptr( )
+    } else {
+      panic!( "init not called" )
+    }
+  }
+}
+
+#[wasm_bindgen]
+pub fn reset( ) {
+  unsafe {
+    if let Some( ref mut conf ) = CONFIG {
+      conf.num_indices_done = 0;
+    } else {
+      panic!( "init not called" )
+    }
+  }
+}
+
+#[wasm_bindgen]
+pub fn compute( count : u32 ) {
+  unsafe {
+    if let Some( ref mut conf ) = CONFIG {
+      let origin = Vec3::new( 0.0, 0.0, -2.0 );
+
+      for _i in 0..count {
+        let (x, y) = conf.rays[ conf.num_indices_done ];
+
+        let x_f32 = ( ( ( x as f32 ) / ( ( conf.viewport_width - 1 ) as f32 ) ) - 0.5 ) * conf.aspect_ratio;
+        let y_f32 = ( ( conf.viewport_height - y ) as f32 ) / ( ( conf.viewport_height - 1 ) as f32 ) - 0.5;
+        let pixel = Vec3::new( x_f32, y_f32, 0.0 );
+        let dir   = ( pixel - origin ).normalize( );
+
+        let res =
+          if conf.is_depth {
+            trace_original_depth( &conf.scene, &Ray::new( origin, dir ) ).clamp( )
+          } else {
+            trace_original_color( &conf.scene, &Ray::new( origin, dir ), conf.max_reflect ).clamp( )
+          };
+
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
+
+        conf.num_indices_done += 1;
+      }
+    } else {
+      panic!( "init not called" )
+    }
+  }
+}
+
+pub fn setup_scene( ) -> Scene {
+  let light = Light::new( Vec3::new( 0.0, 6.0, 4.5 ), Color3::new( 0.7, 0.7, 0.7 ) );
+
+  // MatDiffuse { color : Color3 },
+  // MatReflect { color : Color3, reflection : f32 },
+  // MatRefract { reflection : f32, absorption : Color3, refractive_index : f32 }
+
+  let mut shapes: Vec< Box< Tracable > > = Vec::new( );
+  //Material::new( Color3::new( 1.0, 0.0, 0.0 ), 0.4, 0.3, 20.0, Some( Refraction::new( Color3::new( 0.7, 0.7, 0.7 ), 1.5 ) ) ) )
+  shapes.push( Box::new( Sphere::new( Vec3::new(  0.0, 1.0, 5.0 ), 1.0, Material::refract( 0.8, Color3::new( 0.7, 0.7, 0.7 ), 1.5 ) ) ) );
+  shapes.push( Box::new( Sphere::new( Vec3::new( -1.2, 0.0, 10.0 ), 1.0, Material::reflect( Color3::new( 0.0, 1.0, 0.0 ), 0.2 ) ) ) );
+  shapes.push( Box::new( Sphere::new( Vec3::new(  1.0, 0.0, 10.0 ), 1.0, Material::reflect( Color3::new( 0.0, 0.0, 1.0 ), 0.3 ) ) ) );
+  shapes.push( Box::new( AABB::cube( Vec3::new(  -1.7, 0.0, 7.0 ), 1.0, Material::refract( 0.5, Color3::new( 1.0, 0.0, 1.0 ), 1.5 ) ) ) );
+  shapes.push( Box::new( Plane::new( Vec3::new( 0.0, -1.0, 0.0 ), Vec3::new( 0.0, 1.0, 0.0 ), Material::reflect( Color3::new( 1.0, 1.0, 1.0 ), 0.1 ) ) ) );
+  shapes.push( Box::new( Plane::new( Vec3::new( 0.0, 0.0, 13.0 ), Vec3::new( 0.0, 0.0, -1.0 ), Material::diffuse( Color3::new( 1.0, 1.0, 1.0 ) ) ) ) );
+
+  Scene::new( vec![ light ], shapes )
+}
+
+// Borrowed from:
+// https://www.scratchapixel.com/lessons/3d-basic-rendering/introduction-to-shading/reflection-refraction-fresnel
+fn refract( i : Vec3, mut n : Vec3, prev_ior : f32, ior : f32 ) -> Option< Vec3 > {
+  let mut cosi = clamp( i.dot( n ), -1.0, 1.0 ); 
+  let mut etai = prev_ior;
+  let mut etat = ior; 
+  //let mut n = N; 
+  if cosi < 0.0 { cosi = -cosi; } else { swap( &mut etai, &mut etat ); n = -n; } 
+  let eta = etai / etat; 
+  let k = 1.0 - eta * eta * (1.0 - cosi * cosi);
+  if k < 0.0 {
+    None
+  } else {
+    Some( ( eta * i + (eta * cosi - k.sqrt()) * n ).normalize( ) )
+  }
+}
+
+fn swap< T: Copy >( a : &mut T, b : &mut T ) {
+  let tmp = *a;
+  *a = *b;
+  *b = tmp;
+}
+
+// Borrowed from:
+// https://www.scratchapixel.com/lessons/3d-basic-rendering/introduction-to-shading/reflection-refraction-fresnel
+fn fresnel( i : Vec3, n : Vec3, prev_ior : f32, ior : f32 ) -> f32 {
+  let cosi = clamp( i.dot( n ), -1.0, 1.0 ); 
+  let mut etai = prev_ior;
+  let mut etat = ior; 
+  if cosi > 0.0 {
+    swap( &mut etai, &mut etat );
+  } 
+  // Compute sini using Snell's law
+  let sint = etai / etat * 0.0_f32.max( 1.0 - cosi * cosi ).sqrt( ); 
+  // Total internal reflection
+  if sint >= 1.0 { 
+    1.0
+  } else { 
+    let cost = 0.0_f32.max( 1.0 - sint * sint ).sqrt( );
+    let cosi = cosi.abs( ); //fabsf(cosi); 
+    let rs = ((etat * cosi) - (etai * cost)) / ((etat * cosi) + (etai * cost)); 
+    let rp = ((etai * cosi) - (etat * cost)) / ((etai * cosi) + (etat * cost)); 
+    (rs * rs + rp * rp) / 2.0
+  } 
+} 
+
+fn trace_original_color( scene : &Scene, ray : &Ray, max_rays : u32 ) -> Color3 {
+  //let light_loc = Vec3::new( 0.0, 2.0, 1.5 );
+  //let light_color = 1.0;
+
+  if let Some( h ) = scene.trace( ray ) {
+    let hit_loc  = ray.at( h.distance );
+    let lights   = scene.lights_at( &hit_loc );
+
+    let mut light_color = Color3::BLACK;
+    //let mut specular_color = Color3::BLACK;
+    for l in &lights {
+      light_color  = light_color + l.color * 0.0_f32.max( h.normal.dot( l.dir ) );
+
+      //let rlight = l.dir.reflect( h.normal );
+      //specular_color = specular_color + l.color * h.mat.specular * 0.0_f32.max( rlight.dot( -ray.dir ) ).powf( h.mat.shininess );
+    }
+
+    match h.mat {
+      Material::Diffuse { color } => light_color * color,
+      Material::Reflect { color, reflection } => {
+        if max_rays > 0 {
+          let refl_dir     = (-ray.dir).reflect( h.normal );
+          let refl_ray     = Ray::new( hit_loc + math::EPSILON * refl_dir, refl_dir );
+          let refl_diffuse = trace_original_color( scene, &refl_ray, max_rays - 1 );
+          light_color * ( ( 1.0 - reflection ) * color + reflection * refl_diffuse )
         } else {
-          0.0
-        };
-      sum += c_val;
-    }
-    let c_val = ( ( sum / bundle.len( ) as f64 ) * 255.0 ) as u8;
-    v.push( c_val ); v.push( c_val ); v.push( c_val );
-  }
-  v
-}
-
-fn rays( vp_x: u32, vp_y: u32, width: u32, height: u32, anti_alias : u32 ) -> Vec< Vec< Ray > > {
-  unsafe {
-    let mut rays = Vec::with_capacity( ( width * height ) as usize );
-    let ar = VIEWPORT_WIDTH as f64 / VIEWPORT_HEIGHT as f64;
-    let alias_offsets = ray_alias( anti_alias );
-    for y in 0..height {
-      for x in 0..width {
-        let mut bundle = Vec::new( );
-        for off in &alias_offsets {
-          let off_x = off.0;
-          let off_y = off.1;
-
-          let origin = Vec3::new( 0.0, 0.0, -2.0 );
-          let x_f64  = ( ( ( ( vp_x + x ) as f64 + off_x ) / ( ( VIEWPORT_WIDTH - 1 ) as f64 ) ) - 0.5 ) * ar;
-          let y_f64  = ( ( VIEWPORT_HEIGHT - ( vp_y + y ) ) as f64 + off_y ) / ( ( VIEWPORT_HEIGHT - 1 ) as f64 ) - 0.5;
-          let pixel  = Vec3::new( x_f64, y_f64, 0.0 );
-          let dir    = ( pixel - origin ).normalize( );
-          bundle.push( Ray::new( origin, dir ) );
+          light_color * color
         }
-        rays.push( bundle );
+      },
+      Material::Refract { reflection, absorption, refractive_index } => {
+        let air_refraction = 1.0; // TODO: What if a glass object is inside water?
+        let kr = fresnel( ray.dir, h.normal, air_refraction, refractive_index );
+        let bias = if h.is_entering { math::EPSILON * h.normal } else { - math::EPSILON * h.normal };
+
+        Color3::BLACK
       }
     }
-    rays
-  }
-}
+    // The diffuse color includes reflection and refraction
+    // refraction
+    // if max_rays > 0 {
+    //   if let Some( refraction ) = h.mat.refraction {
+    //     let air_refraction = 1.0; // TODO: What if a glass object is inside water?
+  
+    //     let refr =
+    //       if h.is_entering {
+    //         refract( ray.dir, h.normal, air_refraction, refraction.refractive_index ) 
+    //       } else {
+    //         refract( ray.dir, -h.normal, refraction.refractive_index, air_refraction ) 
+    //       };
 
-fn ray_alias( count : u32 ) -> Vec< ( f64, f64 ) > {
-  let step    = 1.0 / count as f64;
-  let first   = -0.5 + step * 0.5;
-  let mut dst = Vec::new( );
+    //     let kr = fresnel( ray.dir, h.normal, air_refraction, refraction.refractive_index );
+    //     if let Some( refr_dir ) = refr {
+    //       let refract_ray = Ray::new( hit_loc + math::EPSILON * refr_dir, refr_dir );
+    //       diffuse_color = kr * diffuse_color + ( 1.0 - kr ) * trace_original_color( scene, &refract_ray, max_rays - 1 );
+    //     } else { // Total internal reflection
+    //       let refl_dir = (-ray.dir).reflect( h.normal );
+    //       let refl_ray = Ray::new( hit_loc + math::EPSILON * refl_dir, refl_dir );
+    //       let refl_diffuse = trace_original_color( scene, &refl_ray, max_rays - 1 );
+    //       diffuse_color = kr * diffuse_color + ( 1.0 - kr ) * refl_diffuse;
+    //     }
+    //   }
+    // }
 
-  for y in 0..count {
-    for x in 0..count {
-      dst.push( ( first + step * x as f64, first + step * y as f64 ) );
-    }
-  }
-  // vec![ (0.25,0.25), (0.25,-0.25), (-0.25,-0.25), (-0.25,0.25) ]
-  dst
-}
-
-fn trace_ray_color( ray : Ray ) -> Color3 {
-  let light_loc = Vec3::new( 0.0, 2.0, 1.5 );
-  let light_color = 1.0;
-
-  if let Some( h ) = trace_ray( ray ) {
-    let hit_loc  = ray.at( h.hit.distance );
-    let to_light = ( light_loc - hit_loc ).normalize( );
-
-    let shadow_ray = Ray::new( hit_loc + EPSILON * to_light, to_light );
-    if is_hit_within_sq( trace_ray( shadow_ray ), ( light_loc - hit_loc ).len_sq( ) ) {
-      Color3::new( 0.0, 0.0, 0.0 )
-    } else {
-      // Immediate ray to light source
-      h.mat.color * light_color * 0.0_f64.max( h.hit.normal.dot( to_light ) )
-    }
+    // // reflection
+    // if h.mat.reflection > 0.0 && max_rays > 0 {
+    //   let refl_dir = (-ray.dir).reflect( h.normal );
+    //   let refl_ray = Ray::new( hit_loc + math::EPSILON * refl_dir, refl_dir );
+    //   let refl_diffuse = trace_original_color( scene, &refl_ray, max_rays - 1 );
+    //   diffuse_color = ( 1.0 - h.mat.reflection ) * diffuse_color + h.mat.reflection * refl_diffuse;
+    // }
+    
   } else {
     Color3::new( 0.0, 0.0, 0.0 )
   }
 }
 
-fn is_hit_within_sq( m_hit : Option< MatHit >, d_sq : f64 ) -> bool {
-  if let Some( h ) = m_hit {
-    h.hit.distance * h.hit.distance < d_sq
+fn trace_original_depth( scene : &Scene, ray : &Ray ) -> Color3 {
+  if let Some( h ) = scene.trace( ray ) {
+    let v = 1.0 - clamp( ( h.distance - 5.0 ) / 12.0, 0.0, 1.0 );
+    Color3::new( v, v, v )
   } else {
-    false
+    Color3::new( 0.0, 0.0, 0.0 )
   }
-}
-
-fn trace_ray_depth( ray : Ray ) -> Option< f64 > {
-  if let Some( h ) = trace_ray( ray ) {
-    Some( h.hit.distance )
-  } else {
-    None
-  }
-}
-
-fn trace_ray( ray : Ray ) -> Option< MatHit > {
-  let h1 = hit_sphere( Vec3::new(  0.0, 0.0, 5.0 ), 1.0, ray );
-  let h2 = hit_sphere( Vec3::new( -1.0, 0.0, 5.0 ), 1.0, ray );
-  let h3 = hit_sphere( Vec3::new(  1.0, 0.0, 5.0 ), 1.0, ray );
-  let plane = hit_plane( Vec3::new( 0.0, -1.0, 5.0 ), Vec3::new( 0.0, 1.0, 0.0 ), ray );
-
-  best_hit(
-    vec![ MatHit::fromHit( h1, Material::new( Color3::new( 1.0, 0.0, 0.0 ) ) )
-        , MatHit::fromHit( h2, Material::new( Color3::new( 0.0, 1.0, 0.0 ) ) )
-        , MatHit::fromHit( h3, Material::new( Color3::new( 0.0, 0.0, 1.0 ) ) )
-        , MatHit::fromHit( plane, Material::new( Color3::new( 0.6, 0.6, 0.6 ) ) )
-        ]
-  )
-}
-
-fn best_hit( hits : Vec< Option< MatHit > > ) -> Option< MatHit > {
-  let mut best: Option< MatHit > = None;
-
-  for h in hits {
-    if let Some( bh ) = best {
-      if let Some( new_h ) = h {
-        if new_h.hit.distance < bh.hit.distance {
-          best = h;
-        }
-      }
-    } else {
-      best = h;
-    }
-  }
-
-  best
 }

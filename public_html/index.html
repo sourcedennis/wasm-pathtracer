@@ -33,11 +33,11 @@
     #sidepanel hr {
       border: .5px solid black;
     }
-    button.choice {
-      padding-left: 30pt;
-      padding-right: 12pt;
+    button {
       padding-top: 6pt;
       padding-bottom: 7pt;
+      padding-left: 12pt;
+      padding-right: 12pt;
 
       border: none;
       border-radius: 10px;
@@ -45,12 +45,14 @@
       color: #F2F2F2;
       font-family: OpenSansSemiBold;
       width: 68pt;
-      text-align: left;
       font-size: 10pt;
       background-position: 4pt 0;
       background-repeat: no-repeat;
       background-size: auto 100%;
       margin: 0;
+    }
+    button.choice {
+      padding-left: 30pt;
     }
     button.selected {
       background-image: url( 'images/selected.png' );
@@ -100,7 +102,7 @@
     <title>Raytracer</title>
   </head>
   <body>
-    <canvas width=1200 height=700></canvas>
+    <canvas width=1000 height=600></canvas>
     <div id="sidepanel"><!--This is filled by Elm in src_ts/Main.elm--></div>
   </body>
 </html>
