@@ -132,7 +132,15 @@ impl Tracable for Scene {
       }
     }
 
-    best_hit
+    if let Some( bh ) = best_hit {
+      if bh.distance <= 0.0 {
+        None
+      } else {
+        best_hit
+      }
+    } else {
+      None
+    }
   }
 }
 

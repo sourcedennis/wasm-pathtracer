@@ -1,4 +1,5 @@
 use crate::math::{clamp};
+use crate::vec3::{Vec3};
 use std::ops;
 
 // #[derive(Clone,Copy)]
@@ -16,7 +17,7 @@ use std::ops;
 pub enum Material {
   Diffuse { color : Color3 },
   Reflect { color : Color3, reflection : f32 },
-  Refract { reflection : f32, absorption : Color3, refractive_index : f32 }
+  Refract { absorption : Vec3, refractive_index : f32 }
 }
 
 impl Material {
@@ -28,8 +29,8 @@ impl Material {
     Material::Reflect { color, reflection }
   }
 
-  pub fn refract( reflection : f32, absorption : Color3, refractive_index : f32 ) -> Material {
-    Material::Refract { reflection, absorption, refractive_index }
+  pub fn refract( absorption : Vec3, refractive_index : f32 ) -> Material {
+    Material::Refract { absorption, refractive_index }
   }
 }
 
@@ -44,7 +45,7 @@ impl Color3 {
   pub const BLACK: Color3 = Color3 { red: 0.0, green: 0.0, blue: 0.0 };
 
   pub fn new( red : f32, green : f32, blue : f32 ) -> Color3 {
-    Color3 { red, green, blue }
+    ( Color3 { red, green, blue } ).clamp( )
   }
 
   pub fn clamp( &self ) -> Color3 {
@@ -85,6 +86,22 @@ impl ops::Mul< Color3 > for f32 {
 
   fn mul( self, v: Color3 ) -> Color3 {
     Color3::new( self * v.red, self * v.green, self * v.blue )
+  }
+}
+
+impl ops::Mul< Vec3 > for Color3 {
+  type Output = Color3;
+
+  fn mul( self, v: Vec3 ) -> Color3 {
+    Color3::new( self.red * v.x, self.green * v.y, self.blue * v.z )
+  }
+}
+
+impl ops::Mul< Color3 > for Vec3 {
+  type Output = Color3;
+
+  fn mul( self, c : Color3 ) -> Color3 {
+    Color3::new( self.x * c.red, self.y * c.green, self.z * c.blue )
   }
 }
 

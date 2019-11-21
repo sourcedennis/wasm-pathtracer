@@ -97,7 +97,8 @@ pub fn compute( count : u32 ) {
           if conf.is_depth {
             trace_original_depth( &conf.scene, &Ray::new( origin, dir ) ).clamp( )
           } else {
-            trace_original_color( &conf.scene, &Ray::new( origin, dir ), conf.max_reflect ).clamp( )
+            let (_,c) = trace_original_color( &conf.scene, &Ray::new( origin, dir ), conf.max_reflect );
+            c.clamp( )
           };
 
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
@@ -122,10 +123,10 @@ pub fn setup_scene( ) -> Scene {
 
   let mut shapes: Vec< Box< Tracable > > = Vec::new( );
   //Material::new( Color3::new( 1.0, 0.0, 0.0 ), 0.4, 0.3, 20.0, Some( Refraction::new( Color3::new( 0.7, 0.7, 0.7 ), 1.5 ) ) ) )
-  shapes.push( Box::new( Sphere::new( Vec3::new(  0.0, 1.0, 5.0 ), 1.0, Material::refract( 0.8, Color3::new( 0.7, 0.7, 0.7 ), 1.5 ) ) ) );
+  shapes.push( Box::new( Sphere::new( Vec3::new(  0.0, 1.0, 5.0 ), 1.0, Material::refract( Vec3::new( 0.1, 0.2, 0.1 ), 1.5 ) ) ) );
   shapes.push( Box::new( Sphere::new( Vec3::new( -1.2, 0.0, 10.0 ), 1.0, Material::reflect( Color3::new( 0.0, 1.0, 0.0 ), 0.2 ) ) ) );
   shapes.push( Box::new( Sphere::new( Vec3::new(  1.0, 0.0, 10.0 ), 1.0, Material::reflect( Color3::new( 0.0, 0.0, 1.0 ), 0.3 ) ) ) );
-  shapes.push( Box::new( AABB::cube( Vec3::new(  -1.7, 0.0, 7.0 ), 1.0, Material::refract( 0.5, Color3::new( 1.0, 0.0, 1.0 ), 1.5 ) ) ) );
+  shapes.push( Box::new( AABB::cube( Vec3::new(  -1.7, 0.0 + math::EPSILON * 2.0, 7.0 ), 1.0, Material::refract( Vec3::new( 0.1, 0.2, 0.2 ), 1.5 ) ) ) );
   shapes.push( Box::new( Plane::new( Vec3::new( 0.0, -1.0, 0.0 ), Vec3::new( 0.0, 1.0, 0.0 ), Material::reflect( Color3::new( 1.0, 1.0, 1.0 ), 0.1 ) ) ) );
   shapes.push( Box::new( Plane::new( Vec3::new( 0.0, 0.0, 13.0 ), Vec3::new( 0.0, 0.0, -1.0 ), Material::diffuse( Color3::new( 1.0, 1.0, 1.0 ) ) ) ) );
 
@@ -178,79 +179,75 @@ fn fresnel( i : Vec3, n : Vec3, prev_ior : f32, ior : f32 ) -> f32 {
   } 
 } 
 
-fn trace_original_color( scene : &Scene, ray : &Ray, max_rays : u32 ) -> Color3 {
-  //let light_loc = Vec3::new( 0.0, 2.0, 1.5 );
-  //let light_color = 1.0;
-
+fn trace_original_color( scene : &Scene, ray : &Ray, max_rays : u32 ) -> (f32, Color3) {
   if let Some( h ) = scene.trace( ray ) {
-    let hit_loc  = ray.at( h.distance );
-    let lights   = scene.lights_at( &hit_loc );
+    let hit_loc = ray.at( h.distance );
+    let lights  = scene.lights_at( &hit_loc );
 
-    let mut light_color = Color3::BLACK;
-    //let mut specular_color = Color3::BLACK;
+    // Cumulative light color of all sources, scaled for their angle on the hit
+    let mut light_color = Color3::BLACK; // Color3::new( 0.2, 0.2, 0.2 ); //Color3::BLACK;
     for l in &lights {
       light_color  = light_color + l.color * 0.0_f32.max( h.normal.dot( l.dir ) );
-
-      //let rlight = l.dir.reflect( h.normal );
-      //specular_color = specular_color + l.color * h.mat.specular * 0.0_f32.max( rlight.dot( -ray.dir ) ).powf( h.mat.shininess );
     }
 
-    match h.mat {
-      Material::Diffuse { color } => light_color * color,
-      Material::Reflect { color, reflection } => {
-        if max_rays > 0 {
-          let refl_dir     = (-ray.dir).reflect( h.normal );
-          let refl_ray     = Ray::new( hit_loc + math::EPSILON * refl_dir, refl_dir );
-          let refl_diffuse = trace_original_color( scene, &refl_ray, max_rays - 1 );
-          light_color * ( ( 1.0 - reflection ) * color + reflection * refl_diffuse )
-        } else {
-          light_color * color
+    let color =
+      match h.mat {
+        Material::Diffuse { color } => light_color * color,
+        Material::Reflect { color, reflection } => {
+          if max_rays > 0 {
+            let refl_dir     = (-ray.dir).reflect( h.normal );
+            let refl_ray     = Ray::new( hit_loc + math::EPSILON * refl_dir, refl_dir );
+            let (_, refl_diffuse) = trace_original_color( scene, &refl_ray, max_rays - 1 );
+            let mut diffuse_color = Color3::BLACK;
+            if reflection > 0.0 {
+              diffuse_color = diffuse_color + reflection * refl_diffuse;
+            }
+            if reflection < 1.0 {
+              diffuse_color = diffuse_color + ( 1.0 - reflection ) * color;
+            }
+            light_color * diffuse_color
+          } else { // If it's at the cap, just apply direct illumination
+            light_color * color
+          }
+        },
+        Material::Refract { absorption, refractive_index } => {
+          let air_refraction = 1.0; // TODO: What if a glass object is inside water?
+          let mut kr = fresnel( ray.dir, h.normal, air_refraction, refractive_index );
+
+          let refr_color =
+            if max_rays > 0 {
+              if let Some( refr_dir ) = refract( ray.dir, h.normal, air_refraction, refractive_index ) {
+                // No total internal reflection (refract(..) returns None if that were so). So kr < 1.0
+                // Cast refraction ray
+                let refr_ray = Ray::new( hit_loc + refr_dir * math::EPSILON, refr_dir );
+                let (d,c) = trace_original_color( scene, &refr_ray, max_rays - 1 );
+                c * ( -absorption * d ).exp( ) // Beer's Law
+              } else {
+                Color3::BLACK
+              }
+            } else {
+              kr = 1.0; // Assume full reflection
+              Color3::BLACK
+            };
+
+          let refl_color =
+            if max_rays > 0 && kr > 0.0 {
+              let refl_dir = (-ray.dir).reflect( h.normal ); // TODO: Remove normalize()
+              let refl_ray = Ray::new( hit_loc + refl_dir * math::EPSILON, refl_dir );
+              let (_, c) = trace_original_color( scene, &refl_ray, max_rays - 1 );
+              c
+            } else {
+              kr = 1.0; // Assume full reflection
+              Color3::BLACK // And paint it black
+            };
+
+          refl_color * kr + refr_color * ( 1.0 - kr )
         }
-      },
-      Material::Refract { reflection, absorption, refractive_index } => {
-        let air_refraction = 1.0; // TODO: What if a glass object is inside water?
-        let kr = fresnel( ray.dir, h.normal, air_refraction, refractive_index );
-        let bias = if h.is_entering { math::EPSILON * h.normal } else { - math::EPSILON * h.normal };
+      };
 
-        Color3::BLACK
-      }
-    }
-    // The diffuse color includes reflection and refraction
-    // refraction
-    // if max_rays > 0 {
-    //   if let Some( refraction ) = h.mat.refraction {
-    //     let air_refraction = 1.0; // TODO: What if a glass object is inside water?
-  
-    //     let refr =
-    //       if h.is_entering {
-    //         refract( ray.dir, h.normal, air_refraction, refraction.refractive_index ) 
-    //       } else {
-    //         refract( ray.dir, -h.normal, refraction.refractive_index, air_refraction ) 
-    //       };
-
-    //     let kr = fresnel( ray.dir, h.normal, air_refraction, refraction.refractive_index );
-    //     if let Some( refr_dir ) = refr {
-    //       let refract_ray = Ray::new( hit_loc + math::EPSILON * refr_dir, refr_dir );
-    //       diffuse_color = kr * diffuse_color + ( 1.0 - kr ) * trace_original_color( scene, &refract_ray, max_rays - 1 );
-    //     } else { // Total internal reflection
-    //       let refl_dir = (-ray.dir).reflect( h.normal );
-    //       let refl_ray = Ray::new( hit_loc + math::EPSILON * refl_dir, refl_dir );
-    //       let refl_diffuse = trace_original_color( scene, &refl_ray, max_rays - 1 );
-    //       diffuse_color = kr * diffuse_color + ( 1.0 - kr ) * refl_diffuse;
-    //     }
-    //   }
-    // }
-
-    // // reflection
-    // if h.mat.reflection > 0.0 && max_rays > 0 {
-    //   let refl_dir = (-ray.dir).reflect( h.normal );
-    //   let refl_ray = Ray::new( hit_loc + math::EPSILON * refl_dir, refl_dir );
-    //   let refl_diffuse = trace_original_color( scene, &refl_ray, max_rays - 1 );
-    //   diffuse_color = ( 1.0 - h.mat.reflection ) * diffuse_color + h.mat.reflection * refl_diffuse;
-    // }
-    
+    ( h.distance, color )
   } else {
-    Color3::new( 0.0, 0.0, 0.0 )
+    ( 0.0, Color3::BLACK )
   }
 }
 

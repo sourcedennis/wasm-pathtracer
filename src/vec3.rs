@@ -34,6 +34,10 @@ impl Vec3 {
   pub fn reflect( self, normal : Vec3 ) -> Vec3 {
     2.0 * self.dot( normal ) * normal - self
   }
+
+  pub fn exp( self ) -> Vec3 {
+    Vec3::new( self.x.exp( ), self.y.exp( ), self.z.exp( ) )
+  }
 }
 
 impl ops::Neg for Vec3 {
