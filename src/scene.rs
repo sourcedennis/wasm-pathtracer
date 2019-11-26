@@ -5,7 +5,7 @@ use crate::math::EPSILON;
 
 pub struct Scene {
   lights : Vec< Light >,
-  shapes : Vec< Box< Tracable > >
+  shapes : Vec< Box< dyn Tracable > >
 }
 
 pub struct LightHit {
@@ -15,7 +15,7 @@ pub struct LightHit {
 }
 
 impl Scene {
-  pub fn new( lights : Vec< Light >, shapes : Vec< Box< Tracable > > ) -> Scene {
+  pub fn new( lights : Vec< Light >, shapes : Vec< Box< dyn Tracable > > ) -> Scene {
     Scene { lights, shapes }
   }
 
@@ -82,6 +82,26 @@ pub struct AABB {
   z_min : f32,
   z_max : f32,
   mat   : Material
+}
+
+pub struct Triangle {
+  v0  : Vec3,
+  v1  : Vec3,
+  v2  : Vec3,
+  n0  : Vec3,
+  n1  : Vec3,
+  n2  : Vec3,
+  mat : Material
+}
+
+impl Triangle {
+  pub fn new( v0 : Vec3, v1 : Vec3, v2 : Vec3, n0 : Vec3, n1 : Vec3, n2 : Vec3, mat : Material ) -> Triangle {
+    Triangle { v0, v1, v2, n0, n1, n2, mat }
+  }
+
+  pub fn translate( self, v : Vec3 ) -> Triangle {
+    Triangle::new( self.v0 + v, self.v1 + v, self.v2 + v, self.n0, self.n1, self.n2, self.mat )
+  }
 }
 
 impl Sphere {
@@ -266,6 +286,61 @@ impl Tracable for AABB {
       Some( Hit::new( tmax, normal, self.mat, false ) )
     } else {
       None
+    }
+  }
+}
+
+
+// Returns true if P is on the left of line v1-v0 which has normal N
+fn is_left_of( v0 : Vec3, v1 : Vec3, n : Vec3, p : Vec3 ) -> bool {
+  let edge = v1 - v0;
+  let v0p = p - v0;
+  return n.dot( edge.cross( v0p ) ) >= 0.0;
+}
+
+// Returns true if P is on the left of line v1-v0 which has normal N
+// This function is necessary to ensure no gaps (T-junctions) occur between adjacent triangles.
+fn is_approx_left_of( v0 : Vec3, v1 : Vec3, n : Vec3, p : Vec3 ) -> bool {
+  let edge = v1 - v0;
+  let v0p = p - v0;
+  return n.dot( edge.cross( v0p ) ) + EPSILON >= 0.0;
+}
+
+impl Tracable for Triangle {
+  fn trace( &self, ray: &Ray ) -> Option< Hit > {
+    let v0 = self.v0;
+    let v1 = self.v1;
+    let v2 = self.v2;
+
+    let mut n = ( v1 - v0 ).cross( v2 - v0 );
+
+    let n_dot_d = n.dot( ray.dir );
+    if n_dot_d == 0.0 {
+      // The normal is orthogonal to the ray, meaning the triangle's plane does not intersect with the ray
+      return None;
+    }
+
+    let orig_dis = n.dot( v0 );
+
+    let t = ( orig_dis - n.dot( ray.origin ) ) / n_dot_d;
+    n = n.normalize( );
+
+    if t <= 0.0 {
+      // The triangle is behind the ray's origin
+      return None;
+    }
+
+    let p = ray.at( t );
+
+    if ( is_approx_left_of( v0, v1, n, p ) && is_approx_left_of( v1, v2, n, p ) && is_approx_left_of( v2, v0, n, p ) ) {
+      if ( n_dot_d > 0.0 ) {
+          // Pick the normal that points towards the ray origin, so that it is visible from both sides
+          n = -n;
+      }
+      // TODO: Material for convex shape inside the triangles
+      return Some( Hit::new( t, n, self.mat, true ) );
+    } else {
+      return None;
     }
   }
 }

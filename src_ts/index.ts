@@ -1,5 +1,6 @@
 import { Observable, XObservable } from './observable';
 import { Elm } from './Main.elm';
+import { parseObj, Triangles } from './obj_parser';
 
 function clamp( x : number, minVal : number, maxVal : number ): number {
   return Math.min( maxVal, Math.max( x, minVal ) );
@@ -60,6 +61,13 @@ class Job {
   }
 }
 
+// Meshes are loaded from external OBJ files
+// but the scenes are hard-coded in the Rust application
+// these identify meshes
+enum MeshId {
+  MESH_RABBIT
+}
+
 class RenderTarget {
   public readonly target : HTMLCanvasElement;
 
@@ -87,6 +95,38 @@ class RenderTarget {
     this._maxReflect   = 1;
   }
 
+  public storeMesh( id : MeshId, triangles : Triangles ): void {
+    let idInt: number;
+    switch ( id ) {
+    case MeshId.MESH_RABBIT:
+      idInt = 0;
+      break;
+    default:
+      throw new Error( 'Invalid mesh' );
+    }
+
+    (<any> this._instance.exports ).allocate_mesh( idInt, triangles.vertices.length, triangles.normals.length );
+
+    let vPtr = (<any> this._instance.exports ).mesh_vertices( idInt );
+    let nPtr = (<any> this._instance.exports ).mesh_normals( idInt );
+
+    let dstVertices =
+      new Float32Array( (<any>this._instance.exports).memory.buffer, vPtr, triangles.vertices.length );
+    let dstNormals =
+      new Float32Array( (<any>this._instance.exports).memory.buffer, nPtr, triangles.normals.length );
+    
+    dstVertices.set( triangles.vertices );
+    dstNormals.set( triangles.normals );
+
+    let hasSceneUpdated = (<any> this._instance.exports ).notify_mesh_loaded( idInt );
+
+    this._revalidateMemory( );
+
+    if ( hasSceneUpdated ) {
+      this.restart( );
+    }
+  }
+
   public updateRenderType( isDepth : boolean ) {
     this._isDepth = isDepth;
     this._isInit  = false;
@@ -109,6 +149,12 @@ class RenderTarget {
 
   public onUpdate( ): Observable< number > {
     return this._onUpdate.observable;
+  }
+
+  private _revalidateMemory( ): void {
+    if ( this._isInit ) {
+      this._pixels = new Uint8Array( (<any>this._instance.exports).memory.buffer, (<any>this._instance.exports).results( ), this.target.width * this.target.height * 4 );
+    }
   }
 
   public restart( ): void {
@@ -285,7 +331,6 @@ document.addEventListener( 'DOMContentLoaded', ev => {
   const height = 500;
 
   const canvas  = document.getElementsByTagName( 'canvas' )[ 0 ];
-  const ctx     = <CanvasRenderingContext2D> canvas.getContext( '2d' );
 
   (<any>WebAssembly).instantiateStreaming(fetch('pkg/index_bg.wasm'), { } ).then( compiledMod => {
     const instance = compiledMod.instance;
@@ -329,6 +374,12 @@ document.addEventListener( 'DOMContentLoaded', ev => {
       canvas.width = document.body.clientWidth - 250 / (3 / 4);
       canvasElem.reclamp( );
     }
+
+    fetch( 'torus.obj' ).then( f => f.text( ) ).then( s => {
+      let triangles = parseObj( s );
+      target.storeMesh( MeshId.MESH_RABBIT, triangles );
+      console.log( triangles );
+    } );
   } );
 
 } );

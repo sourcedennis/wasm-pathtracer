@@ -9,13 +9,18 @@ use vec3::Vec3;
 use ray::{Ray, Hit};
 use material::{Color3, Material};
 use math::{clamp};
-use std::ptr;
-use scene::{Tracable, Light, Scene, Sphere, Plane, AABB};
+use scene::{Tracable, Light, Scene, Sphere, Plane, AABB, Triangle};
+use std::collections::HashMap;
 
 // Z points INTO the screen. -Z points to the eye
 
-
 static mut CONFIG : Option< Config > = None;
+static mut MESHES : Option< HashMap< u32, Mesh > > = None;
+
+struct Mesh {
+  vertices : Vec< Vec3 >,
+  normals  : Vec< Vec3 >
+}
 
 struct Config {
   viewport_width   : u32,
@@ -68,6 +73,61 @@ pub fn results( ) -> *const u8 {
   }
 }
 
+// (<any> this._instance.exports ).allocateMesh( idInt, triangles.vertices.length, triangles.normals.length );
+
+// let vPtr = (<any> this._instance.exports ).meshVertices( idInt );
+// let nPtr = (<any> this._instance.exports ).meshNormals( idInt );
+
+#[wasm_bindgen]
+pub fn allocate_mesh( id : u32, num_vertices : u32, num_normals : u32 ) {
+  unsafe {
+    let meshmap = meshes( );
+    meshmap.insert(
+        id
+      , Mesh { vertices: vec![Vec3::ZERO; num_vertices as usize]
+             , normals: vec![Vec3::ZERO; num_normals as usize]
+             }
+      );
+  }
+}
+
+#[wasm_bindgen]
+pub fn mesh_vertices( id : u32 ) -> *const Vec3 {
+  unsafe {
+    let meshmap = meshes( );
+    if let Some( ref mut m ) = meshmap.get( &id ) {
+      m.vertices.as_ptr( )
+    } else {
+      panic!( "Mesh not allocated" )
+    }
+  }
+}
+
+#[wasm_bindgen]
+pub fn mesh_normals( id : u32 ) -> *const Vec3 {
+  unsafe {
+    let meshmap = meshes( );
+    if let Some( ref mut m ) = meshmap.get( &id ) {
+      m.normals.as_ptr( )
+    } else {
+      panic!( "Mesh not allocated" )
+    }
+  }
+}
+
+// Returns `true` if a scene with the loaded mesh is currently rendering
+#[wasm_bindgen]
+pub fn notify_mesh_loaded( id : u32 ) -> bool {
+  unsafe {
+    if let Some( ref mut conf ) = CONFIG {
+      conf.scene = setup_scene( );
+      true
+    } else {
+      false
+    }
+  }
+}
+
 #[wasm_bindgen]
 pub fn reset( ) {
   unsafe {
@@ -80,55 +140,90 @@ pub fn reset( ) {
 }
 
 #[wasm_bindgen]
-pub fn compute( count : u32 ) {
+pub fn compute( ) {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
       let origin = Vec3::new( 0.0, 0.0, -2.0 );
 
-      for _i in 0..count {
-        let (x, y) = conf.rays[ conf.num_indices_done ];
+      let w_inv = 1.0 / conf.viewport_width as f32;
+      let h_inv = 1.0 / conf.viewport_height as f32;
+      let ar = conf.aspect_ratio;
 
-        let x_f32 = ( ( ( x as f32 ) / ( ( conf.viewport_width - 1 ) as f32 ) ) - 0.5 ) * conf.aspect_ratio;
-        let y_f32 = ( ( conf.viewport_height - y ) as f32 ) / ( ( conf.viewport_height - 1 ) as f32 ) - 0.5;
-        let pixel = Vec3::new( x_f32, y_f32, 0.0 );
-        let dir   = ( pixel - origin ).normalize( );
-
-        let res =
-          if conf.is_depth {
-            trace_original_depth( &conf.scene, &Ray::new( origin, dir ) ).clamp( )
-          } else {
-            let (_,c) = trace_original_color( &conf.scene, &Ray::new( origin, dir ), conf.max_reflect );
-            c.clamp( )
-          };
-
-        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
-        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
-        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
-        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
-
-        conf.num_indices_done += 1;
+      for y in 0..conf.viewport_height {
+        for x in 0..conf.viewport_width {
+          conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = 255;
+          conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = 0;
+          conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = 0;
+          conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
+        }
       }
+      // for _i in 0..count {
+      //   let (x, y) = conf.rays[ conf.num_indices_done ];
+
+      //   //let x_f32 = ( ( x as f32 ) * w_inv + 0.5 ) * ar;
+      //   //let y_f32 = ( ( conf.viewport_height - y ) as f32 ) * h_inv + 0.5;
+      //   /*let pixel = Vec3::new( x_f32, y_f32, 0.0 );
+      //   let dir   = ( pixel - origin ).normalize( );
+
+      //   let res =
+      //     if conf.is_depth {
+      //       trace_original_depth( &conf.scene, &Ray::new( origin, dir ) ).clamp( )
+      //     } else {
+      //       let (_,c) = trace_original_color( &conf.scene, &Ray::new( origin, dir ), conf.max_reflect );
+      //       c.clamp( )
+      //     };
+
+      //   conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
+      //   conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
+      //   conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
+      //   conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
+
+      //   conf.num_indices_done += 1;*/
+
+      //   conf.num_indices_done += 1;
+      // }
     } else {
       panic!( "init not called" )
     }
   }
 }
 
-pub fn setup_scene( ) -> Scene {
+unsafe fn meshes( ) -> &'static mut HashMap< u32, Mesh > {
+  if let Some( ref mut meshmap ) = MESHES {
+    meshmap
+  } else {
+    MESHES = Some( HashMap::new( ) );
+    meshes( )
+  }
+}
+
+unsafe fn setup_scene( ) -> Scene {
   let light = Light::new( Vec3::new( 0.0, 6.0, 4.5 ), Color3::new( 0.7, 0.7, 0.7 ) );
 
   // MatDiffuse { color : Color3 },
   // MatReflect { color : Color3, reflection : f32 },
   // MatRefract { reflection : f32, absorption : Color3, refractive_index : f32 }
 
-  let mut shapes: Vec< Box< Tracable > > = Vec::new( );
-  //Material::new( Color3::new( 1.0, 0.0, 0.0 ), 0.4, 0.3, 20.0, Some( Refraction::new( Color3::new( 0.7, 0.7, 0.7 ), 1.5 ) ) ) )
-  shapes.push( Box::new( Sphere::new( Vec3::new(  0.0, 1.0, 5.0 ), 1.0, Material::refract( Vec3::new( 0.1, 0.2, 0.1 ), 1.5 ) ) ) );
-  shapes.push( Box::new( Sphere::new( Vec3::new( -1.2, 0.0, 10.0 ), 1.0, Material::reflect( Color3::new( 0.0, 1.0, 0.0 ), 0.2 ) ) ) );
-  shapes.push( Box::new( Sphere::new( Vec3::new(  1.0, 0.0, 10.0 ), 1.0, Material::reflect( Color3::new( 0.0, 0.0, 1.0 ), 0.3 ) ) ) );
-  shapes.push( Box::new( AABB::cube( Vec3::new(  -1.7, 0.0 + math::EPSILON * 2.0, 7.0 ), 1.0, Material::refract( Vec3::new( 0.1, 0.2, 0.2 ), 1.5 ) ) ) );
+  let mut shapes: Vec< Box< dyn Tracable > > = Vec::new( );
+  // shapes.push( Box::new( Sphere::new( Vec3::new(  0.0, 1.0, 5.0 ), 1.0, Material::refract( Vec3::new( 0.1, 0.2, 0.1 ), 1.5 ) ) ) );
+  // shapes.push( Box::new( Sphere::new( Vec3::new( -1.2, 0.0, 10.0 ), 1.0, Material::reflect( Color3::new( 0.0, 1.0, 0.0 ), 0.2 ) ) ) );
+  // shapes.push( Box::new( Sphere::new( Vec3::new(  1.0, 0.0, 10.0 ), 1.0, Material::reflect( Color3::new( 0.0, 0.0, 1.0 ), 0.3 ) ) ) );
+  // shapes.push( Box::new( AABB::cube( Vec3::new(  -1.7, 0.0 + math::EPSILON * 2.0, 7.0 ), 1.0, Material::refract( Vec3::new( 0.1, 0.2, 0.2 ), 1.5 ) ) ) );
   shapes.push( Box::new( Plane::new( Vec3::new( 0.0, -1.0, 0.0 ), Vec3::new( 0.0, 1.0, 0.0 ), Material::reflect( Color3::new( 1.0, 1.0, 1.0 ), 0.1 ) ) ) );
   shapes.push( Box::new( Plane::new( Vec3::new( 0.0, 0.0, 13.0 ), Vec3::new( 0.0, 0.0, -1.0 ), Material::diffuse( Color3::new( 1.0, 1.0, 1.0 ) ) ) ) );
+
+
+  // If the rabbit is loaded
+  if let Some( rabbit ) = meshes( ).get( &0 ) {
+    for i in 0..(rabbit.vertices.len()/3) {
+      let mut triangle =
+        Triangle::new( rabbit.vertices[ i * 3 + 0 ] * 0.5, rabbit.vertices[ i * 3 + 1 ] * 0.5, rabbit.vertices[ i * 3 + 2 ] * 0.5
+                     , rabbit.normals[ i * 3 + 0 ],  rabbit.normals[ i * 3 + 1 ],  rabbit.normals[ i * 3 + 2 ]
+                     , Material::diffuse( Color3::new( 1.0, 0.4, 0.4 ) ) );
+      triangle = triangle.translate( Vec3::new( 0.0, -0.8, 5.0 ) );
+      shapes.push( Box::new( triangle ) );
+    }
+  }
 
   Scene::new( vec![ light ], shapes )
 }

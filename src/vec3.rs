@@ -9,6 +9,8 @@ pub struct Vec3 {
 }
 
 impl Vec3 {
+  pub const ZERO: Vec3 = Vec3 { x: 0.0, y: 0.0, z: 0.0 };
+
   pub fn new( x : f32, y : f32, z : f32 ) -> Vec3 {
     Vec3 { x, y, z }
   }
@@ -21,6 +23,13 @@ impl Vec3 {
 
   pub fn dot( self, rhs : Vec3 ) -> f32 {
     self.x * rhs.x + self.y * rhs.y + self.z * rhs.z
+  }
+
+  pub fn cross( self, t : Vec3 ) -> Vec3 {
+    Vec3::new(
+      self.y * t.z - self.z * t.y,
+      self.z * t.x - self.x * t.z,
+      self.x * t.y - self.y * t.x )
   }
 
   pub fn len( self ) -> f32 {
