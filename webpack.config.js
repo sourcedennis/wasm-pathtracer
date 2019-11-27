@@ -41,11 +41,33 @@ module.exports =
             outDir: 'public_html/pkg'
           })
       ],
-      mode: 'development',
+      mode: 'production',
       devServer: {
         contentBase: path.join(__dirname, 'public_html'),
         compress: true,
         port: 9000
       }
+  },
+  {
+    entry: path.resolve(__dirname, './src_ts_worker/worker.ts' ),
+    output: {
+        path: path.resolve(__dirname, 'dist'),
+        filename: 'worker.js',
+    },
+    module: {
+      rules: [{
+        test: /\.(tsx|ts)$/,
+        use: [{
+          loader: 'ts-loader'
+        }],
+        exclude: [
+          /(node_modules)/,
+        ]
+      }]
+    },
+    resolve: {
+      extensions: [ '.tsx', '.ts', '.js', '.wasm' ]
+    },
+    mode: 'production',
   }
 ];

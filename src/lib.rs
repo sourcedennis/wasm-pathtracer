@@ -25,39 +25,73 @@ struct Mesh {
 struct Config {
   viewport_width   : u32,
   viewport_height  : u32,
-  aspect_ratio     : f32,
   is_depth         : bool,
   resultbuffer     : Vec< u8 >,
-  rays             : Vec< ( u32, u32 ) >,
+  pixel_coords     : Vec< ( u32, u32 ) >,
+  // Original rays are cached =D
+  rays             : Vec< Ray >,
+  num_rays         : u32,
   scene            : Scene,
-  num_indices_done : usize,
   max_reflect      : u32
 }
 
 #[wasm_bindgen]
 pub fn init( width : u32, height : u32, is_depth : u32, max_reflect : u32 ) {
   unsafe {
+    let dir_temp = Vec3::ZERO;
+    let origin = Vec3::new( 0.0, 0.0, -2.0 );
+    let rays = vec![Ray::new( origin, dir_temp ); (width*height) as usize];
+
     CONFIG = Some( Config {
       viewport_width:   width
     , viewport_height:  height
-    , aspect_ratio:     width as f32 / height as f32
     , is_depth:         is_depth != 0
     , resultbuffer:     vec![0; (width*height*4) as usize]
-    , rays:             vec![(0,0); (width*height) as usize]
+    , pixel_coords:     vec![(0,0); (width*height) as usize]
+    , rays:             rays
+    , num_rays:         0
     , scene:            setup_scene( )
-    , num_indices_done: 0
     , max_reflect
     } );
   }
 }
 
 #[wasm_bindgen]
-pub fn ray_store( ) -> *mut (u32, u32) {
+pub fn ray_store( num_rays : u32 ) -> *mut (u32, u32) {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
-      conf.rays.as_mut_ptr( )
+      conf.num_rays = num_rays;
+      conf.pixel_coords.as_mut_ptr( )
     } else {
       panic!( "init not called" )
+    }
+  }
+}
+
+#[wasm_bindgen]
+pub fn ray_store_done( ) {
+  unsafe {
+    let origin = Vec3::new( 0.0, 0.0, -2.0 );
+
+    if let Some( ref mut conf ) = CONFIG {
+      let uw = conf.viewport_width as usize;
+      let uh = conf.viewport_height as usize;
+    
+      for i in 0..(conf.num_rays as usize) {
+        let (x,y) = conf.pixel_coords[ i ];
+
+        let w_inv = 1.0 / conf.viewport_width as f32;
+        let h_inv = 1.0 / conf.viewport_height as f32;
+        let ar = conf.viewport_width as f32 / conf.viewport_height as f32;
+    
+        let fx = ( ( x as f32 + 0.5_f32 ) * w_inv - 0.5_f32 ) * ar;
+        let fy = 0.5_f32 - ( y as f32 + 0.5_f32 ) * h_inv;
+        
+        let pixel = Vec3::new( fx, fy, 0.0 );
+        let dir   = ( pixel - origin ).normalize( );
+  
+        conf.rays[ i ].dir = dir;
+      }
     }
   }
 }
@@ -129,59 +163,33 @@ pub fn notify_mesh_loaded( id : u32 ) -> bool {
 }
 
 #[wasm_bindgen]
-pub fn reset( ) {
-  unsafe {
-    if let Some( ref mut conf ) = CONFIG {
-      conf.num_indices_done = 0;
-    } else {
-      panic!( "init not called" )
-    }
-  }
-}
-
-#[wasm_bindgen]
 pub fn compute( ) {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
-      let origin = Vec3::new( 0.0, 0.0, -2.0 );
-
-      let w_inv = 1.0 / conf.viewport_width as f32;
-      let h_inv = 1.0 / conf.viewport_height as f32;
-      let ar = conf.aspect_ratio;
-
-      for y in 0..conf.viewport_height {
-        for x in 0..conf.viewport_width {
-          conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = 255;
-          conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = 0;
-          conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = 0;
+ 
+      if conf.is_depth {
+        for i in 0..(conf.num_rays as usize) {
+          let (x, y) = conf.pixel_coords[ i ];
+  
+          let res = trace_original_depth( &conf.scene, &conf.rays[ i ] ).clamp( );
+  
+          conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
+          conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
+          conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
+          conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
+        }
+      } else {
+        for i in 0..(conf.num_rays as usize) {
+          let (x, y) = conf.pixel_coords[ i ];
+  
+          let (d, res) = trace_original_color( &conf.scene, &conf.rays[ i ], conf.max_reflect );
+  
+          conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
+          conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
+          conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
           conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
         }
       }
-      // for _i in 0..count {
-      //   let (x, y) = conf.rays[ conf.num_indices_done ];
-
-      //   //let x_f32 = ( ( x as f32 ) * w_inv + 0.5 ) * ar;
-      //   //let y_f32 = ( ( conf.viewport_height - y ) as f32 ) * h_inv + 0.5;
-      //   /*let pixel = Vec3::new( x_f32, y_f32, 0.0 );
-      //   let dir   = ( pixel - origin ).normalize( );
-
-      //   let res =
-      //     if conf.is_depth {
-      //       trace_original_depth( &conf.scene, &Ray::new( origin, dir ) ).clamp( )
-      //     } else {
-      //       let (_,c) = trace_original_color( &conf.scene, &Ray::new( origin, dir ), conf.max_reflect );
-      //       c.clamp( )
-      //     };
-
-      //   conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
-      //   conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
-      //   conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
-      //   conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
-
-      //   conf.num_indices_done += 1;*/
-
-      //   conf.num_indices_done += 1;
-      // }
     } else {
       panic!( "init not called" )
     }
@@ -205,16 +213,16 @@ unsafe fn setup_scene( ) -> Scene {
   // MatRefract { reflection : f32, absorption : Color3, refractive_index : f32 }
 
   let mut shapes: Vec< Box< dyn Tracable > > = Vec::new( );
-  // shapes.push( Box::new( Sphere::new( Vec3::new(  0.0, 1.0, 5.0 ), 1.0, Material::refract( Vec3::new( 0.1, 0.2, 0.1 ), 1.5 ) ) ) );
-  // shapes.push( Box::new( Sphere::new( Vec3::new( -1.2, 0.0, 10.0 ), 1.0, Material::reflect( Color3::new( 0.0, 1.0, 0.0 ), 0.2 ) ) ) );
-  // shapes.push( Box::new( Sphere::new( Vec3::new(  1.0, 0.0, 10.0 ), 1.0, Material::reflect( Color3::new( 0.0, 0.0, 1.0 ), 0.3 ) ) ) );
-  // shapes.push( Box::new( AABB::cube( Vec3::new(  -1.7, 0.0 + math::EPSILON * 2.0, 7.0 ), 1.0, Material::refract( Vec3::new( 0.1, 0.2, 0.2 ), 1.5 ) ) ) );
+  shapes.push( Box::new( Sphere::new( Vec3::new(  0.0, 1.0, 5.0 ), 1.0, Material::refract( Vec3::new( 0.1, 0.2, 0.1 ), 1.5 ) ) ) );
+  shapes.push( Box::new( Sphere::new( Vec3::new( -1.2, 0.0, 10.0 ), 1.0, Material::reflect( Color3::new( 0.0, 1.0, 0.0 ), 0.2 ) ) ) );
+  shapes.push( Box::new( Sphere::new( Vec3::new(  1.0, 0.0, 10.0 ), 1.0, Material::reflect( Color3::new( 0.0, 0.0, 1.0 ), 0.3 ) ) ) );
+  shapes.push( Box::new( AABB::cube( Vec3::new(  -1.7, 0.0 + math::EPSILON * 2.0, 7.0 ), 1.0, Material::refract( Vec3::new( 0.1, 0.2, 0.2 ), 1.5 ) ) ) );
   shapes.push( Box::new( Plane::new( Vec3::new( 0.0, -1.0, 0.0 ), Vec3::new( 0.0, 1.0, 0.0 ), Material::reflect( Color3::new( 1.0, 1.0, 1.0 ), 0.1 ) ) ) );
   shapes.push( Box::new( Plane::new( Vec3::new( 0.0, 0.0, 13.0 ), Vec3::new( 0.0, 0.0, -1.0 ), Material::diffuse( Color3::new( 1.0, 1.0, 1.0 ) ) ) ) );
 
 
   // If the rabbit is loaded
-  if let Some( rabbit ) = meshes( ).get( &0 ) {
+  /*if let Some( rabbit ) = meshes( ).get( &0 ) {
     for i in 0..(rabbit.vertices.len()/3) {
       let mut triangle =
         Triangle::new( rabbit.vertices[ i * 3 + 0 ] * 0.5, rabbit.vertices[ i * 3 + 1 ] * 0.5, rabbit.vertices[ i * 3 + 2 ] * 0.5
@@ -223,9 +231,19 @@ unsafe fn setup_scene( ) -> Scene {
       triangle = triangle.translate( Vec3::new( 0.0, -0.8, 5.0 ) );
       shapes.push( Box::new( triangle ) );
     }
-  }
+  }*/
 
   Scene::new( vec![ light ], shapes )
+  /*let sphereLoc  = Vec3::new( 0.0, 0.0, 5.0 );
+
+  let lightLoc   = Vec3::new( -0.5, 2.0, 1.0 );
+  let lightColor = Color3::new( 0.7, 0.7, 0.7 );
+  let light = Light::new( lightLoc, lightColor );
+
+  let mut shapes: Vec< Box< dyn Tracable > > = Vec::new( );
+  shapes.push( Box::new( Sphere::new( sphereLoc, 1.0, Material::diffuse( Color3::new( 0.0, 0.0, 1.0 ) ) ) ) );
+
+  Scene::new( vec![ light ], shapes )*/
 }
 
 // Borrowed from:
@@ -353,4 +371,33 @@ fn trace_original_depth( scene : &Scene, ray : &Ray ) -> Color3 {
   } else {
     Color3::new( 0.0, 0.0, 0.0 )
   }
+}
+
+pub fn hit_sphere( pos : Vec3, r : f32, ray : Ray ) -> Option< Hit > {
+  // Using algebraic solution. (Non-geometric)
+  // Solve: ((O-P)+D*t)^2 - R^2
+  let a = 1_f32; // D^2
+  let b = 2_f32 * ray.dir.dot( ray.origin - pos );
+  let c = ( ray.origin - pos ).dot( ray.origin - pos ) - r*r;
+  let D = b * b - 4_f32 * a * c;
+
+  if D < 0_f32 {
+    return None;
+  }
+
+  let t0 = ( -b + D.sqrt( ) ) / ( 2_f32 * a );
+  let t1 = ( -b - D.sqrt( ) ) / ( 2_f32 * a );
+
+  let mut t = t0.min( t1 );
+  if t <= 0_f32 {
+    t = t0.max( t1 );
+
+    if t <= 0_f32 { // The sphere is fully behind the "camera"
+      return None
+    }
+  }
+
+  let normal = ( ray.at( t ) - pos ) / r;
+
+  return Some( Hit::new( t, normal, Material::diffuse( Color3::new( 1.0, 0.0, 0.0 ) ), true ) );
 }

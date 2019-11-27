@@ -1,33 +1,39 @@
 port module Main exposing (main)
 
 import Browser
-import Html exposing (Html, Attribute, h2, hr, br, div, text, span, button)
+import Html exposing (Html, Attribute, h2, hr, br, div, text, span, button, table, tr, td, th)
 import Html.Attributes exposing (class, id, style)
 import Html.Events exposing (onClick)
 import String exposing (fromInt, fromFloat)
 
-port callRestart : () -> Cmd msg
+-- port callRestart : () -> Cmd msg
 port updateRenderType : Int -> Cmd msg
 port updateReflectionDepth : Int -> Cmd msg
-port updateProgress : (Int -> msg) -> Sub msg
-port doneProgress : (Float -> msg) -> Sub msg
-
-type Progress = ProgressPct Int | ProgressDone Float
+port updateRunning : Bool -> Cmd msg
+port updateMulticore : Bool -> Cmd msg
+port updatePerformance : ( (Int, Int, Int) -> msg ) -> Sub msg
 
 type alias Model =
   { renderType      : RenderType
-  , progress        : Progress
   , reflectionDepth : Int
+    -- Render time over the last second
+  , performanceAvg  : Int
+  , performanceMin  : Int
+  , performanceMax  : Int
+
+  , isMulticore     : Bool
+
+  , isRunning       : Bool
   }
 
 type RenderType = RenderColor | RenderDepth
 
 type Msg
-  = UpdateProgress Int
-  | DoneProgress Float
+  = UpdatePerformance Int Int Int -- render times: avg min max
   | SelectType RenderType
   | SelectReflectionDepth Int
-  | ClickRestart
+  | SelectMulticore Bool
+  | SelectRunning Bool -- Play/Pause (Play=True)
 
 main =
   Browser.element
@@ -39,25 +45,24 @@ main =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.batch [
-      updateProgress UpdateProgress
-    , doneProgress DoneProgress
-    ]
+    updatePerformance <| \(x,y,z) -> UpdatePerformance x y z
 
 init : Model
 init =
   { renderType      = RenderColor
-  , progress        = ProgressPct 0
   , reflectionDepth = 1
+  , performanceAvg  = 0
+  , performanceMin  = 0
+  , performanceMax  = 0
+  , isMulticore     = False
+  , isRunning       = True
   }
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
-    UpdateProgress p ->
-      ( { model | progress = ProgressPct p }, Cmd.none )
-    DoneProgress time ->
-      ( { model | progress = ProgressDone time }, Cmd.none )
+    UpdatePerformance avg low high ->
+      ( { model | performanceAvg = avg, performanceMin = low, performanceMax = high }, Cmd.none )
     SelectType t ->
       let rtInt =
             case t of
@@ -67,8 +72,10 @@ update msg model =
       ( { model | renderType = t }, updateRenderType rtInt )
     SelectReflectionDepth t ->
       ( { model | reflectionDepth = t }, updateReflectionDepth t )
-    ClickRestart ->
-      ( model, callRestart () )
+    SelectMulticore b ->
+      ( { model | isMulticore = b }, updateMulticore b )
+    SelectRunning b ->
+      ( { model | isRunning = b }, updateRunning b )
 
 
 view : Model -> Html Msg
@@ -106,26 +113,28 @@ view m =
         , buttonC (m.reflectionDepth == 5) (SelectReflectionDepth 5)
             [ class "choice", class "bottom right", style "width" "40pt", style "border-top" "1px solid white" ]
             [ text "5" ]
-        -- , br [] []
-        -- , buttonC (m.reflectionDepth == 6) (SelectReflectionDepth 6)
-        --     [ class "choice", class "bottom left", style "width" "40pt" ]
-        --     [ text "6" ]
-        -- , buttonC (m.reflectionDepth == 7) (SelectReflectionDepth 7)
-        --     [ class "choice", class "middle", style "width" "40pt" ]
-        --     [ text "7" ]
-        -- , buttonC (m.reflectionDepth == 8) (SelectReflectionDepth 8)
-        --     [ class "choice", class "bottom right", style "width" "40pt" ]
-        --     [ text "8" ]
         ]
     , div []
-        ( span [] [ text "Progress" ] ::
-          ( case m.progress of
-            ProgressPct p ->
-              span [] [ text ( fromInt p ++ "%" ) ]
-            ProgressDone t ->
-              span [] [ text ( "Time: " ++ fromFloat t ++ " seconds" ) ] )
-          :: [ button [ onClick ClickRestart ] [ text "Restart" ] ]
-        )
+        [ span [] [ text "Processor count" ]
+        , buttonC (not m.isMulticore) (SelectMulticore False)
+            [ class "choice", class "left", style "width" "90pt" ]
+            [ text "Single" ]
+        , buttonC m.isMulticore (SelectMulticore True)
+            [ class "choice", class "right", style "width" "90pt" ]
+            [ text "Multi (8)" ]
+        ]
+    , div []
+        [ span [] [ text "Performance (in last second)" ]
+        , table []
+            [ tr [] [ th [] [ text "Average:" ], td [] [ span [] [ text <| fromInt m.performanceAvg ++ " ms" ] ] ]
+            , tr [] [ th [] [ text "Min:" ], td [] [ span [] [ text <| fromInt m.performanceMin ++ " ms" ] ] ]
+            , tr [] [ th [] [ text "Max:" ], td [] [ span [] [ text <| fromInt m.performanceMax ++ " ms" ] ] ]
+            ]
+        ]
+    , if m.isRunning then
+        button [ onClick (SelectRunning False) ] [ text "Pause" ]
+      else
+        button [ onClick (SelectRunning True) ] [ text "Resume" ]
     ]
 
 buttonC : Bool -> msg -> List (Attribute msg) -> List (Html msg) -> Html msg
