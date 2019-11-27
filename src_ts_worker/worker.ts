@@ -20,10 +20,13 @@ onmessage = ev => {
           }
         }
       };
+    
+    let camera = msg.camera;
 
     ( <any> WebAssembly ).instantiate( mod, importObject ).then( ins => {
       let iStartTime = Date.now( );
-      ins.exports.init( msg.width, msg.height, msg.isDepth, msg.rayDepth );
+      ins.exports.init( msg.width, msg.height, msg.isDepth, msg.rayDepth
+        , camera.location.x, camera.location.y, camera.location.z, camera.rotX, camera.rotY );
 
       let rayPtr = ins.exports.ray_store( msg.pixels.length );
       let raysDst = new Uint32Array( ins.exports.memory.buffer, rayPtr, msg.width * msg.height * 2 );
@@ -55,5 +58,10 @@ onmessage = ev => {
       buffer[ 4 * ( y * 512 + x ) + 3 ] = mem8[ 4 * ( y * 512 + x ) + 3 ];
     }
     postMessage( { type: 'compute_done' } );
+  } else if ( msg.type === 'update_params' ) {
+    instance.exports.update_params( msg.isDepth ? 1 : 0, msg.maxRayDepth );
+  } else if ( msg.type === 'update_camera' ) {
+    let cam = msg.camera;
+    instance.exports.update_camera( cam.location.x, cam.location.y, cam.location.z, cam.rotX, cam.rotY );
   }
 };

@@ -22,6 +22,12 @@ struct Mesh {
   normals  : Vec< Vec3 >
 }
 
+struct Camera {
+  location : Vec3,
+  rot_x    : f32,
+  rot_y    : f32
+}
+
 struct Config {
   viewport_width   : u32,
   viewport_height  : u32,
@@ -32,15 +38,16 @@ struct Config {
   rays             : Vec< Ray >,
   num_rays         : u32,
   scene            : Scene,
-  max_reflect      : u32
+  max_ray_depth      : u32,
+  camera           : Camera
 }
 
+// Only primitives can be sent across the WASM boundary. So don't hate the large number of parameters
 #[wasm_bindgen]
-pub fn init( width : u32, height : u32, is_depth : u32, max_reflect : u32 ) {
+pub fn init( width : u32, height : u32, is_depth : u32, max_ray_depth : u32
+           , cam_x : f32, cam_y : f32, cam_z : f32, cam_rot_x : f32, cam_rot_y : f32 ) {
   unsafe {
-    let dir_temp = Vec3::ZERO;
-    let origin = Vec3::new( 0.0, 0.0, -2.0 );
-    let rays = vec![Ray::new( origin, dir_temp ); (width*height) as usize];
+    let rays = vec![Ray::new( Vec3::ZERO, Vec3::ZERO ); (width*height) as usize];
 
     CONFIG = Some( Config {
       viewport_width:   width
@@ -51,7 +58,8 @@ pub fn init( width : u32, height : u32, is_depth : u32, max_reflect : u32 ) {
     , rays:             rays
     , num_rays:         0
     , scene:            setup_scene( )
-    , max_reflect
+    , max_ray_depth
+    , camera:           Camera { location: Vec3::new( cam_x, cam_y, cam_z ), rot_x: cam_rot_x, rot_y: cam_rot_y }
     } );
   }
 }
@@ -69,29 +77,63 @@ pub fn ray_store( num_rays : u32 ) -> *mut (u32, u32) {
 }
 
 #[wasm_bindgen]
+pub fn update_params( is_depth : u32, max_ray_depth : u32 ) {
+  unsafe {
+    if let Some( ref mut conf ) = CONFIG {
+      conf.is_depth      = is_depth != 0;
+      conf.max_ray_depth = max_ray_depth;
+    } else {
+      panic!( "init not called" )
+    }
+  }
+}
+
+#[wasm_bindgen]
+pub fn update_camera( cam_x : f32, cam_y : f32, cam_z : f32, cam_rot_x : f32, cam_rot_y : f32 ) {
+  unsafe {
+    if let Some( ref mut conf ) = CONFIG {
+      conf.camera = Camera { location: Vec3::new( cam_x, cam_y, cam_z ), rot_x: cam_rot_x, rot_y: cam_rot_y };
+      ray_store_done( );
+    } else {
+      panic!( "init not called" )
+    }
+  }
+}
+
+#[wasm_bindgen]
 pub fn ray_store_done( ) {
   unsafe {
-    let origin = Vec3::new( 0.0, 0.0, -2.0 );
+    if let Some( ref conf ) = CONFIG {
+      let origin = conf.camera.location;
 
-    if let Some( ref mut conf ) = CONFIG {
-      let uw = conf.viewport_width as usize;
-      let uh = conf.viewport_height as usize;
-    
-      for i in 0..(conf.num_rays as usize) {
-        let (x,y) = conf.pixel_coords[ i ];
-
-        let w_inv = 1.0 / conf.viewport_width as f32;
-        let h_inv = 1.0 / conf.viewport_height as f32;
-        let ar = conf.viewport_width as f32 / conf.viewport_height as f32;
-    
-        let fx = ( ( x as f32 + 0.5_f32 ) * w_inv - 0.5_f32 ) * ar;
-        let fy = 0.5_f32 - ( y as f32 + 0.5_f32 ) * h_inv;
-        
-        let pixel = Vec3::new( fx, fy, 0.0 );
-        let dir   = ( pixel - origin ).normalize( );
+      // For the camera:
+      // - First rotate each direction around the x-axis
+      // - Then rotate each direction around the y-axis
+      // - Then translate the origin
   
-        conf.rays[ i ].dir = dir;
+      if let Some( ref mut conf ) = CONFIG {
+        let uw = conf.viewport_width as usize;
+        let uh = conf.viewport_height as usize;
+      
+        for i in 0..(conf.num_rays as usize) {
+          let (x,y) = conf.pixel_coords[ i ];
+  
+          let w_inv = 1.0 / conf.viewport_width as f32;
+          let h_inv = 1.0 / conf.viewport_height as f32;
+          let ar = conf.viewport_width as f32 / conf.viewport_height as f32;
+      
+          let fx = ( ( x as f32 + 0.5_f32 ) * w_inv - 0.5_f32 ) * ar;
+          let fy = 0.5_f32 - ( y as f32 + 0.5_f32 ) * h_inv;
+          
+          let pixel = Vec3::new( fx, fy, 1.0 );
+          let dir   = pixel.normalize( ).rot_x( conf.camera.rot_x ).rot_y( conf.camera.rot_y );
+    
+          conf.rays[ i ].origin = origin;
+          conf.rays[ i ].dir = dir;
+        }
       }
+    } else {
+      panic!( "init not called" )
     }
   }
 }
@@ -182,7 +224,7 @@ pub fn compute( ) {
         for i in 0..(conf.num_rays as usize) {
           let (x, y) = conf.pixel_coords[ i ];
   
-          let (d, res) = trace_original_color( &conf.scene, &conf.rays[ i ], conf.max_reflect );
+          let (d, res) = trace_original_color( &conf.scene, &conf.rays[ i ], conf.max_ray_depth );
   
           conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
           conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;

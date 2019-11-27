@@ -93,7 +93,7 @@ view m =
             [ text "Depth" ]
         ]
     , div []
-        [ span [] [ text "Reflection depth" ]
+        [ span [] [ text "Ray depth" ]
         , buttonC (m.reflectionDepth == 0) (SelectReflectionDepth 0)
             [ class "choice", class "top left", style "width" "40pt" ]
             [ text "0" ]

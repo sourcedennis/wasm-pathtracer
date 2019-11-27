@@ -1,6 +1,7 @@
 import { Observable, XObservable } from './observable';
 import { Elm } from './Main.elm';
 import { parseObj, Triangles } from './obj_parser';
+import { Vec3 } from './vec3';
 
 function clamp( x : number, minVal : number, maxVal : number ): number {
   return Math.min( maxVal, Math.max( x, minVal ) );
@@ -38,11 +39,24 @@ enum MeshId {
   MESH_RABBIT
 }
 
+class Camera {
+  public readonly location : Vec3;
+  public readonly rotX     : number;
+  public readonly rotY     : number;
+
+  public constructor( location : Vec3, rotX : number, rotY : number ) {
+    this.location = location;
+    this.rotX = rotX;
+    this.rotY = rotY;
+  }
+}
+
 interface Renderer {
   render( ): Promise< Uint8Array >;
   destroy( ): void;
-  updateRenderType( isDepth : boolean ): void;
-  updateRayDepth( depth : number ): void;
+  updateParams( isDepth : boolean, maxRayDepth : number ): void;
+  // It *first* rotates around the x-axis, and then the y-axis. And then translation is applied
+  updateCamera( cam : Camera ): void;
 }
 
 class SingleRenderer implements Renderer {
@@ -51,7 +65,9 @@ class SingleRenderer implements Renderer {
   private readonly _width : number;
   private readonly _height : number;
 
-  public constructor( width : number, height : number, mod : WebAssembly.Module, isDepth : boolean, rayDepth : number ) {
+  private _isDepth
+
+  public constructor( width : number, height : number, mod : WebAssembly.Module, isDepth : boolean, rayDepth : number, camera : Camera ) {
     this._mod = mod;
     this._width = width;
     this._height = height;
@@ -60,7 +76,8 @@ class SingleRenderer implements Renderer {
       { env: { abort: arg => console.log( 'abort' ) } };
       
     this._ins = WebAssembly.instantiate( mod, importObject ).then( ins => <any> ins ).then( ins => {
-      ins.exports.init( width, height, isDepth, rayDepth );
+      // Pass stuff across WASM boundary
+      ins.exports.init( width, height, isDepth, rayDepth, camera.location.x, camera.location.y, camera.location.z, camera.rotX, camera.rotY );
       let rayPtr = ins.exports.ray_store( width * height );
       let rays = new Uint32Array( ins.exports.memory.buffer, rayPtr, width * height * 2 );
 
@@ -85,12 +102,18 @@ class SingleRenderer implements Renderer {
 
   public destroy( ): void { }
 
-  public updateRenderType( isDepth : boolean ): void {
-
+  public updateParams( isDepth : boolean, maxRayDepth : number ): void {
+    this._ins.then( ins => {
+      let exps = <any> ins.exports;
+      exps.update_params( isDepth ? 1 : 0, maxRayDepth );
+    } );
   }
 
-  public updateRayDepth( depth : number ): void {
-
+  public updateCamera( cam : Camera ): void {
+    this._ins.then( ins => {
+      let exps = <any> ins.exports;
+      exps.update_camera( cam.location.x, cam.location.y, cam.location.z, cam.rotX, cam.rotY );
+    } );
   }
 }
 
@@ -102,13 +125,18 @@ class MulticoreRenderer implements Renderer {
   private readonly _onInitDone   : Promise< void >;
   private          _onRenderDone : EmptyPromise< Uint8Array > | undefined;
   private          _numDone      : number;
+  private          _hasUpdatedCamera : boolean;
+  private          _camera           : Camera;
 
-  public constructor( width : number, height : number, mod : WebAssembly.Module, isDepth : boolean, rayDepth : number, numWorkers : number ) {
+  public constructor( width : number, height : number, mod : WebAssembly.Module
+                    , isDepth : boolean, rayDepth : number, camera : Camera, numWorkers : number ) {
     this._width   = width;
     this._height  = height;
     this._workers = new Array( numWorkers );
     let buffer  = new SharedArrayBuffer( width * height * 4 );
     let buffer8 = new Uint8Array( buffer );
+    this._camera = camera;
+    this._hasUpdatedCamera = false;
     for ( let i = 0; i < numWorkers; i++ ) {
       this._workers[ i ] = new Worker( 'worker.js' );
     }
@@ -125,6 +153,7 @@ class MulticoreRenderer implements Renderer {
         rays[ y * width + x ] = new Point2( x, y );
       }
     }
+    shuffle( rays );
     let bins = divideOver( rays, numWorkers );
 
     for ( let i = 0; i < numWorkers; i++ ) {
@@ -143,7 +172,7 @@ class MulticoreRenderer implements Renderer {
           }
         }
       } );
-      this._workers[ i ].postMessage( { type: 'init', mod, pixels: bins[ i ], buffer, width, height, isDepth, rayDepth } );
+      this._workers[ i ].postMessage( { type: 'init', mod, pixels: bins[ i ], buffer, width, height, isDepth, rayDepth, camera } );
     }
   }
 
@@ -157,6 +186,13 @@ class MulticoreRenderer implements Renderer {
       this._numDone = 0;
       this._onRenderDone = new EmptyPromise< Uint8Array >( );
 
+      if ( this._hasUpdatedCamera ) {
+        for ( let i = 0; i < this._workers.length; i++ ) {
+          this._workers[ i ].postMessage( { type: 'update_camera', camera: this._camera } );
+        }
+        this._hasUpdatedCamera = false;
+      }
+
       for ( let i = 0; i < this._workers.length; i++ ) {
         this._workers[ i ].postMessage( { type: 'compute' } );
       }
@@ -166,15 +202,25 @@ class MulticoreRenderer implements Renderer {
   }
 
   public destroy( ): void {
-    console.log( 'destroy!' );
+    for ( let i = 0; i < this._workers.length; i++ ) {
+      this._workers[ i ].terminate( );
+    }
+    if ( this._numDone < this._workers.length ) {
+      let dst = new Uint8Array( this._width * this._height * 4 );
+      dst.fill( 255 );
+      ( <EmptyPromise< Uint8Array >> this._onRenderDone ).fulfil( dst );
+    }
   }
 
-  public updateRenderType( isDepth : boolean ): void {
-    console.log( 'render type' );
+  public updateParams( isDepth : boolean, maxRayDepth : number ): void {
+    for ( let i = 0; i < this._workers.length; i++ ) {
+      this._workers[ i ].postMessage( { type: 'update_params', isDepth, maxRayDepth } );
+    }
   }
 
-  public updateRayDepth( depth : number ): void {
-    console.log( 'ray depth' );
+  public updateCamera( camera : Camera ): void {
+    this._hasUpdatedCamera = true;
+    this._camera = camera;
   }
 }
 
@@ -398,13 +444,6 @@ class CanvasElement {
     this._render( );
   }
 
-  // public updateTarget( target : RenderTarget ): void {
-  //   this._target = target;
-  //   this._xOff = Math.round( ( this._canvas.width - target.width( ) ) / 2 );
-  //   this._yOff = Math.round( ( this._canvas.height - target.height( ) ) / 2 );
-  //   this.render( );
-  // }
-
   private _render( ): void {
     this._ctx.fillStyle = '#3e3e3e';
     this._ctx.fillRect( 0, 0, this._canvas.width, this._canvas.height );
@@ -432,7 +471,8 @@ class CanvasElement {
         } else {
           this._ctx.fillStyle = '#A0A0A0';
         }
-        this._ctx.fillRect( x * cellSize + this._xOff, y * cellSize + this._yOff, Math.min( gridWidth - x * cellSize, cellSize ), Math.min( gridHeight - y * cellSize, cellSize ) );
+        this._ctx.fillRect( x * cellSize + this._xOff, y * cellSize + this._yOff
+          , Math.min( gridWidth - x * cellSize, cellSize ), Math.min( gridHeight - y * cellSize, cellSize ) );
       }
     }
   }
@@ -527,6 +567,145 @@ class FpsTracker {
   }
 }
 
+function keyTicker( keys : Set< number > ): Observable< [ number, number ] > {
+  return new Observable< [ number, number ] >( observer => {
+    let downKeys = new Map< number, any >( );
+    let lastTickTime = 0;
+
+    window.addEventListener( 'keydown', ev => {
+      if ( keys.has( ev.keyCode ) ) {
+        if ( !downKeys.has( ev.keyCode ) ) {
+          let ival = setInterval( ( ) => tick( ), 10 );
+          downKeys.set( ev.keyCode, ival );
+          observer.next( [ ev.keyCode, 1 ] );
+          lastTickTime = Date.now( );
+  
+          function tick( ) {
+            let currTime = Date.now( );
+            let numTicks = Math.floor( ( currTime - lastTickTime ) / 10 );
+            lastTickTime += numTicks * 10;
+            observer.next( [ ev.keyCode, numTicks ] );
+          }
+        }
+
+        ev.preventDefault( );
+      }
+    } );
+    window.addEventListener( 'keyup', ev => {
+      if ( keys.has( ev.keyCode ) ) {
+        if ( downKeys.has( ev.keyCode ) ) {
+          let ival = downKeys.get( ev.keyCode );
+          clearInterval( ival );
+          downKeys.delete( ev.keyCode );
+        }
+        ev.preventDefault( );
+      }
+    } );
+  } );
+}
+
+class CameraController {
+  private readonly _onUpdate : XObservable< Camera >;
+  private _camera : Camera;
+
+  public constructor( camera : Camera ) {
+    this._onUpdate = new XObservable( );
+    this._camera = this._cloneCamera( camera );
+
+    let keys = new Set( [ 87, 68, 83, 65, 37, 38, 39, 40, 33, 34 ] );
+
+    keyTicker( keys ).subscribe( ( [ code, count ] ) => {
+      let translation: Vec3 | null = null;
+      switch ( code ) {
+      case 87: // W
+        translation = new Vec3( 0, 0, 0.03 * count );
+        break;
+      case 68: // D
+        translation = new Vec3( 0.03 * count, 0, 0 );
+        break;
+      case 83: // S
+        translation = new Vec3( 0, 0, -0.03 * count );
+        break;
+      case 65: // A
+        translation = new Vec3( -0.03 * count, 0, 0 );
+        break;
+      case 37: // left
+        this.rotY -= 0.001 * count * Math.PI;
+        break;
+      case 38: // up
+        this.rotX -= 0.001 * count * Math.PI;
+        break;
+      case 39: // right
+        this.rotY += 0.001 * count * Math.PI;
+        break;
+      case 40: // down
+        this.rotX += 0.001 * count * Math.PI;
+        break;
+      case 33: // page up
+        translation = new Vec3( 0, 0.03 * count, 0 );
+        break;
+      case 34: // page down
+        translation = new Vec3( 0, -0.03 * count, 0 );
+        break;
+      }
+
+      if ( translation != null ) {
+        translation = translation.rotY( this.rotY );
+        let c = this._camera;
+        this._camera = new Camera( c.location.add( translation ), c.rotX, c.rotY );
+        this._onUpdate.next( this._camera );
+      }
+    } );
+  }
+
+  public onUpdate( ): Observable< Camera > { return this._onUpdate.observable; }
+
+  public get x( ): number { return this._camera.location.x; }
+  public get y( ): number { return this._camera.location.y; }
+  public get z( ): number { return this._camera.location.z; }
+  public get rotX( ): number { return this._camera.rotX; }
+  public get rotY( ): number { return this._camera.rotY; }
+
+  public set( c : Camera ) {
+    this._camera = this._cloneCamera( c );
+    this._onUpdate.next( this._camera );
+  }
+
+  public set x( v : number ) {
+    let c = this._camera;
+    this._camera = new Camera( c.location.setX( v ), c.rotX, c.rotY );
+    this._onUpdate.next( this._camera );
+  }
+  
+  public set y( v : number ) {
+    let c = this._camera;
+    this._camera = new Camera( c.location.setY( v ), c.rotX, c.rotY );
+    this._onUpdate.next( this._camera );
+  }
+
+  public set z( v : number ) {
+    let c = this._camera;
+    this._camera = new Camera( c.location.setZ( v ), c.rotX, c.rotY );
+    this._onUpdate.next( this._camera );
+  }
+
+  public set rotX( v : number ) {
+    let c = this._camera;
+    this._camera = new Camera( c.location, v, c.rotY );
+    this._onUpdate.next( this._camera );
+  }
+
+  public set rotY( v : number ) {
+    let c = this._camera;
+    this._camera = new Camera( c.location, c.rotX, v );
+    this._onUpdate.next( this._camera );
+  }
+
+  private _cloneCamera( c : Camera ): Camera {
+    return new Camera( c.location, c.rotX, c.rotY );
+  }
+}
+
 document.addEventListener( 'DOMContentLoaded', ev => {
   const width  = 512;
   const height = 512;
@@ -538,14 +717,21 @@ document.addEventListener( 'DOMContentLoaded', ev => {
   let isMulticore      = false;
   let rayDepth         = 1;
   let isRenderingDepth = false; // depth-map vs color
+  let camera           = new Camera( new Vec3( 0.0, 0.0, -1.0 ), 0, 0 );
+  let cameraController = new CameraController( camera );
 
   (<any>WebAssembly).compileStreaming(fetch('pkg/index_bg.wasm'), { } ).then( compiledMod => {
     //const instance = compiledMod.instance;
     let target = new RenderTarget( width, height );
     let canvasElem = new CanvasElement( canvas, target );
     //let renderer = new SingleRenderer( width, height, compiledMod );
-    let renderer: Renderer = new SingleRenderer( width, height, compiledMod, isRenderingDepth, rayDepth );
+    let renderer: Renderer = new SingleRenderer( width, height, compiledMod, isRenderingDepth, rayDepth, camera );
     let fpsTracker = new FpsTracker( );
+
+    cameraController.onUpdate( ).subscribe( c => {
+      camera = c;
+      renderer.updateCamera( c );
+    } );
     
     onResize( );
     setTimeout( ( ) => { onResize( ); canvasElem.recenter( ); }, 0 );
@@ -556,11 +742,13 @@ document.addEventListener( 'DOMContentLoaded', ev => {
     let settingsPanel = document.getElementById( 'sidepanel' );
     const app = Elm.Main.init( { node: settingsPanel } );
     app.ports.updateRenderType.subscribe( t => {
-      renderer.updateRenderType( t === 1 );
+      isRenderingDepth = ( t == 1 );
+      renderer.updateParams( isRenderingDepth, rayDepth );
       fpsTracker.clear( );
     } );
     app.ports.updateReflectionDepth.subscribe( d => {
-      renderer.updateRayDepth( d );
+      rayDepth = d;
+      renderer.updateParams( isRenderingDepth, rayDepth );
       fpsTracker.clear( );
     } );
     app.ports.updateRunning.subscribe( r => {
@@ -579,9 +767,9 @@ document.addEventListener( 'DOMContentLoaded', ev => {
         fpsTracker.clear( );
       }
       if ( isMulticore ) {
-        renderer = new MulticoreRenderer( width, height, compiledMod, isRenderingDepth, rayDepth, 8 );
+        renderer = new MulticoreRenderer( width, height, compiledMod, isRenderingDepth, rayDepth, camera, 8 );
       } else {
-        renderer = new SingleRenderer( width, height, compiledMod, isRenderingDepth, rayDepth );
+        renderer = new SingleRenderer( width, height, compiledMod, isRenderingDepth, rayDepth, camera );
       }
     } );
 

@@ -47,6 +47,32 @@ impl Vec3 {
   pub fn exp( self ) -> Vec3 {
     Vec3::new( self.x.exp( ), self.y.exp( ), self.z.exp( ) )
   }
+
+  pub fn rot_y( &self, angle : f32 ) -> Vec3 {
+    // [  c 0 s ] [x]
+    // [  0 1 0 ] [y]
+    // [ -s 0 c ] [z]
+    let x = self.x;
+    let y = self.y;
+    let z = self.z;
+
+    let c = angle.cos( );
+    let s = angle.sin( );
+    Vec3::new( c * x + s * z, y, -s * x + c * z )
+  }
+
+  pub fn rot_x( &self, angle : f32 ) -> Vec3 {
+    // [ 1 0  0 ] [x]
+    // [ 0 c -s ] [y]
+    // [ 0 s  c ] [z]
+    let x = self.x;
+    let y = self.y;
+    let z = self.z;
+
+    let c = angle.cos( );
+    let s = angle.sin( );
+    Vec3::new( x, c * y - s * z, s * y + c * z )
+  }
 }
 
 impl ops::Neg for Vec3 {
