@@ -2,27 +2,16 @@ use crate::math::{clamp};
 use crate::vec3::{Vec3};
 use std::ops;
 
-// #[derive(Clone,Copy)]
-// pub struct Material {
-//   pub color      : Color3,
-//   // Reflection. 0 is none. 1 is full
-//   pub reflection : f32,
-//   // Shininess for specular highlight. >= 0
-//   pub specular   : f32,
-//   pub shininess  : f32,
-//   pub refraction : Option< Refraction >
-// }
-
 #[derive(Clone,Copy)]
 pub enum Material {
-  Diffuse { color : Color3 },
+  // Reflect with `reflection` set to 0.0 is diffuse
   Reflect { color : Color3, reflection : f32 },
   Refract { absorption : Vec3, refractive_index : f32 }
 }
 
 impl Material {
   pub fn diffuse( color : Color3 ) -> Material {
-    Material::Diffuse { color }
+    Material::Reflect { color, reflection: 0.0 }
   }
 
   pub fn reflect( color : Color3, reflection : f32 ) -> Material {
@@ -34,6 +23,7 @@ impl Material {
   }
 }
 
+// Keep Color3's and Vec3's different, to avoid weird type conflicts
 #[derive(Clone,Copy)]
 pub struct Color3 {
   pub red   : f32,

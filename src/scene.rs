@@ -3,9 +3,15 @@ use crate::ray::{Ray, Hit};
 use crate::vec3::{Vec3};
 use crate::math::EPSILON;
 
+// Scene structure description
+// A Scene consists of shapes and lights
+// The camera is *not* part of the scene
+//
+// For specific scenes, look at the `scenes.rs` file.
+
 pub struct Scene {
-  lights : Vec< Light >,
-  shapes : Vec< Box< dyn Tracable > >
+  pub lights : Vec< Light >,
+  pub shapes : Vec< Box< dyn Tracable > >
 }
 
 pub struct LightHit {
@@ -19,22 +25,20 @@ impl Scene {
     Scene { lights, shapes }
   }
 
-  // The vector of lights that can reach the location
-  pub fn lights_at( &self, hit_loc: &Vec3 ) -> Vec< LightHit > {
-    let mut lights = Vec::new( );
+  // Casts a shadow ray from the `hit_loc` to all lights in the scene
+  // All non-occluded lights are returned by this function
+  pub fn shadow_ray( &self, hit_loc : &Vec3, light_id : usize ) -> Option< LightHit > {
+    let l = &self.lights[ light_id ];
+    let mut to_light = l.location - *hit_loc;
+    let distance = to_light.len( );
+    to_light = to_light / distance;
 
-    for l in &self.lights {
-      let mut to_light = l.location - *hit_loc;
-      let distance = to_light.len( );
-      to_light = to_light / distance;
-
-      let shadow_ray = Ray::new( *hit_loc + EPSILON * to_light, to_light );
-      if !is_hit_within_sq( self.trace( &shadow_ray ), ( l.location - *hit_loc ).len_sq( ) ) {
-        lights.push( LightHit { dir: to_light, distance, color: l.color } );
-      }
+    let shadow_ray = Ray::new( *hit_loc + EPSILON * to_light, to_light );
+    if !is_hit_within_sq( self.trace( &shadow_ray ), ( l.location - *hit_loc ).len_sq( ) ) {
+      Some( LightHit { dir: to_light, distance, color: l.color } )
+    } else {
+      None
     }
-
-    lights
   }
 }
 
@@ -192,7 +196,12 @@ impl Tracable for Sphere {
       }
     }
   
-    let normal = ( ray.at( t ) - self.location ) / self.radius;
+    let normal =
+      if is_entering {
+        ( ray.at( t ) - self.location ) / self.radius
+      } else {
+        -( ray.at( t ) - self.location ) / self.radius
+      };
   
     return Some( Hit::new( t, normal, self.mat, is_entering ) );
   }
