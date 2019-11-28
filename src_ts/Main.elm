@@ -105,14 +105,24 @@ view m =
             [ text "2" ]
         , br [] []
         , buttonC (m.reflectionDepth == 3) (SelectReflectionDepth 3)
-            [ class "choice", class "bottom left", style "width" "40pt", style "border-left" "none", style "border-top" "1px solid white" ]
+            [ class "choice", class "middle", style "width" "40pt", style "border-left" "none", style "border-top" "1px solid white" ]
             [ text "3" ]
         , buttonC (m.reflectionDepth == 4) (SelectReflectionDepth 4)
             [ class "choice", class "middle", style "width" "40pt", style "border-top" "1px solid white" ]
             [ text "4" ]
         , buttonC (m.reflectionDepth == 5) (SelectReflectionDepth 5)
-            [ class "choice", class "bottom right", style "width" "40pt", style "border-top" "1px solid white" ]
+            [ class "choice", class "middle", style "width" "40pt", style "border-top" "1px solid white" ]
             [ text "5" ]
+        , br [] []
+        , buttonC (m.reflectionDepth == 6) (SelectReflectionDepth 6)
+            [ class "choice", class "bottom left", style "width" "40pt", style "border-left" "none", style "border-top" "1px solid white" ]
+            [ text "6" ]
+        , buttonC (m.reflectionDepth == 7) (SelectReflectionDepth 7)
+            [ class "choice", class "middle", style "width" "40pt", style "border-top" "1px solid white" ]
+            [ text "7" ]
+        , buttonC (m.reflectionDepth == 8) (SelectReflectionDepth 8)
+            [ class "choice", class "bottom right", style "width" "40pt", style "border-top" "1px solid white" ]
+            [ text "8" ]
         ]
     , div []
         [ span [] [ text "Processor count" ]

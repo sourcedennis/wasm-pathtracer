@@ -341,10 +341,14 @@ fn setup_scene( ) -> Scene {
   
   shapes.push( Box::new( Sphere::new( Vec3::new( -1.2, 0.0, 10.0 ), 1.0, Material::reflect( Color3::new( 0.0, 1.0, 0.0 ), 0.2 ) ) ) );
   shapes.push( Box::new( Sphere::new( Vec3::new(  1.0, 0.0, 10.0 ), 1.0, Material::reflect( Color3::new( 0.0, 0.0, 1.0 ), 0.3 ) ) ) );
-  shapes.push( Box::new( AABB::cube( Vec3::new(  0.0, 0.5 + math::EPSILON * 2.0, 4.0 ), 1.5, Material::refract( Vec3::new( 0.7, 0.2, 0.1 ), 1.5 ) ) ) );
-  shapes.push( Box::new( Sphere::new( Vec3::new(  0.0, 0.5, 4.0 ), 1.0, Material::refract( Vec3::new( 1.0, 0.0, 0.0 ), 1.0 ) ) ) );
+  shapes.push( Box::new( AABB::cube( Vec3::new(  0.0, 0.5 + math::EPSILON * 2.0, 4.0 ), 1.0, Material::refract( Vec3::new( 0.7, 0.2, 0.1 ), 1.5 ) ) ) );
+  shapes.push( Box::new( Sphere::new( Vec3::new(  0.0, 0.5, 4.0 ), 0.7, Material::refract( Vec3::new( 1.0, 0.0, 0.0 ), 1.0 ) ) ) );
   shapes.push( Box::new( Plane::new( Vec3::new( 0.0, -1.0, 0.0 ), Vec3::new( 0.0, 1.0, 0.0 ), Material::reflect( Color3::new( 1.0, 1.0, 1.0 ), 0.1 ) ) ) );
+  shapes.push( Box::new( Plane::new( Vec3::new( 0.0, 8.0, 0.0 ), Vec3::new( 0.0, -1.0, 0.0 ), Material::reflect( Color3::new( 1.0, 1.0, 1.0 ), 0.1 ) ) ) );
+  shapes.push( Box::new( Plane::new( Vec3::new( -6.0, 0.0, 0.0 ), Vec3::new(  1.0, 0.0, 0.0 ), Material::reflect( Color3::new( 1.0, 1.0, 1.0 ), 0.1 ) ) ) );
+  shapes.push( Box::new( Plane::new( Vec3::new(  6.0, 0.0, 0.0 ), Vec3::new( -1.0, 0.0, 0.0 ), Material::reflect( Color3::new( 1.0, 1.0, 1.0 ), 0.1 ) ) ) );
   shapes.push( Box::new( Plane::new( Vec3::new( 0.0, 0.0, 13.0 ), Vec3::new( 0.0, 0.0, -1.0 ), Material::diffuse( Color3::new( 1.0, 1.0, 1.0 ) ) ) ) );
+  shapes.push( Box::new( Plane::new( Vec3::new( 0.0, 0.0, -13.0 ), Vec3::new( 0.0, 0.0, 1.0 ), Material::diffuse( Color3::new( 1.0, 1.0, 1.0 ) ) ) ) );
 
   // If the rabbit is loaded
   /*if let Some( rabbit ) = meshes( ).get( &0 ) {
@@ -460,8 +464,8 @@ fn trace_original_color( scene : &Scene, ray : &Ray, max_rays : u32, refr_stack 
                 // Thus keep a stack for these weird cases
                 // Note, however, if the original ray starts inside a mesh, stuff goes wrong (so don't do this =D )
                 if h.is_entering {
-                  //refr_stack.push( RefractMat { absorption: Some( absorption ), refractive_index: obj_refractive_index } );
-                  refr_stack.push( RefractMat { absorption: None, refractive_index: 1.0 } );
+                  // This object is the contained object's outside
+                  refr_stack.push( RefractMat { absorption: Some( absorption ), refractive_index: obj_refractive_index } );
                   let (d,c) = trace_original_color( scene, &refr_ray, max_rays - 1, refr_stack );
                   refr_stack.pop_until1( );
                   c * ( -absorption * d ).exp( )
@@ -481,7 +485,10 @@ fn trace_original_color( scene : &Scene, ray : &Ray, max_rays : u32, refr_stack 
                 Color3::BLACK
               }
             } else {
-              Color3::BLACK
+              // This means very little, but happens when the rays don't want to
+              // go any further. Instead of black, choose a sensible color
+              let habs = absorption.x.max( absorption.y ).max( absorption.z );
+              Color3::new( 1.0 - absorption.x / habs, 1.0 - absorption.y / habs, 1.0 - absorption.z / habs )
             };
 
           if is_popped {
@@ -496,8 +503,10 @@ fn trace_original_color( scene : &Scene, ray : &Ray, max_rays : u32, refr_stack 
               let (_, c) = trace_original_color( scene, &refl_ray, max_rays - 1, refr_stack );
               c
             } else {
-              kr = 1.0;
-              Color3::BLACK // And paint it black
+              // This means very little, but happens when the rays don't want to
+              // go any further. Instead of black, choose a sensible color
+              let habs = absorption.x.max( absorption.y ).max( absorption.z );
+              Color3::new( 1.0 - absorption.x / habs, 1.0 - absorption.y / habs, 1.0 - absorption.z / habs )
             };
 
           refl_color * kr + refr_color * ( 1.0 - kr )
