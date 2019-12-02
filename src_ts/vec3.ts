@@ -39,6 +39,15 @@ export class Vec3 {
   }
 
   public rotX( angle : number ): Vec3 {
-    return this; // TODO
+    // [ 1 0  0 ] [x]
+    // [ 0 c -s ] [y]
+    // [ 0 s  c ] [z]
+    let x = this.x;
+    let y = this.y;
+    let z = this.z;
+
+    let c = Math.cos( angle );
+    let s = Math.sin( angle )
+    return new Vec3( x, c * y - s * z, s * y + c * z )
   }
 }
