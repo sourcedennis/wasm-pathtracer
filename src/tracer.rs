@@ -1,37 +1,51 @@
+use crate::data::cap_stack::Stack;
+use crate::graphics::{Color3, PointMaterial, Scene};
+use crate::graphics::ray::{Ray, Tracable};
 use crate::math::Vec3;
-use crate::graphics::color3::Color3;
-use crate::graphics::scene::{Scene};
+use crate::math;
 
 // Individual instances of Material constructors
 // Such that work can be split up
+#[derive(Copy, Clone)]
 pub struct MatReflect {
-  color     : Color3,
-  reflection : f32
+  pub color     : Color3,
+  pub reflection : f32
+}
+
+impl MatReflect {
+  pub fn new( color : Color3, reflection : f32 ) -> MatReflect {
+    MatReflect { color, reflection }
+  }
 }
 
 // Another extracted Material constructor
+#[derive(Copy, Clone)]
 pub struct MatRefract {
-  absorption       : Vec3,
-  refractive_index : f32
+  pub absorption       : Vec3,
+  pub refractive_index : f32
 }
 
 impl MatRefract {
   // The "material" of air (real refractive index might be slightly greater)
   // Note that when `absorption` = (0,0,0); then the multipliers are: e^0.0 = 1.0
   pub const AIR: MatRefract = MatRefract { absorption: Vec3::ZERO, refractive_index: 1.0 };
+
+  pub fn new( absorption : Vec3, refractive_index : f32 ) -> MatRefract {
+    MatRefract { absorption, refractive_index }
+  }
 }
 
 struct Mesh {
-  vertices : Vec< Vec3 >,
-  normals  : Vec< Vec3 >
+  pub vertices : Vec< Vec3 >,
+  pub normals  : Vec< Vec3 >
 }
 
 // The scene camera.
 // It first rotates around the x-axis, then around the y-axis, then it translates
 pub struct Camera {
-  location : Vec3,
-  rot_x    : f32,
-  rot_y    : f32
+  pub location : Vec3,
+  pub rot_x    : f32,
+  pub rot_y    : f32
 }
 
 impl Camera {
@@ -42,9 +56,9 @@ impl Camera {
 
 // Traces an original ray, and produces a gray-scale value for that ray
 // White values are close, black are far away
-fn trace_original_depth( scene : &Scene, ray : &Ray ) -> Color3 {
+pub fn trace_original_depth( scene : &Scene, ray : &Ray ) -> Color3 {
   if let Some( h ) = scene.trace( ray ) {
-    let v = 1.0 - clamp( ( h.distance - 5.0 ) / 12.0, 0.0, 1.0 );
+    let v = 1.0 - math::clamp( ( h.distance - 5.0 ) / 12.0, 0.0, 1.0 );
     Color3::new( v, v, v )
   } else {
     Color3::new( 0.0, 0.0, 0.0 )
@@ -63,20 +77,20 @@ fn trace_color( scene : &Scene, ray : &Ray, max_rays : u32, refr_stack : &mut St
 
     let color =
       match h.mat {
-        Material::Reflect { color, reflection } => {
+        PointMaterial::Reflect { color, reflection } => {
           let light_color = lights_color( scene, &hit_loc, &h.normal );
 
           if max_rays > 0 && reflection > 0.0 {
             let refl_dir          = (-ray.dir).reflect( h.normal );
             let refl_ray          = Ray::new( hit_loc + math::EPSILON * refl_dir, refl_dir );
-            let (_, refl_diffuse) = trace_original_color( scene, &refl_ray, max_rays - 1, refr_stack );
+            let (_, refl_diffuse) = trace_color( scene, &refl_ray, max_rays - 1, refr_stack );
             let diffuse_color     = reflection * refl_diffuse + ( 1.0 - reflection ) * color;
-            light_color * diffuse_color
+            light_color.to_vec3( ) * diffuse_color
           } else { // If it's at the cap, just apply direct illumination
-            light_color * color
+            light_color.to_vec3( ) * color
           }
         },
-        Material::Refract { absorption, refractive_index } => {
+        PointMaterial::Refract { absorption, refractive_index } => {
           let (obj_refractive_index, outside_refr_index, is_popped) =
             if h.is_entering {
               let outside_mat = refr_stack.top( ).unwrap( );
@@ -105,20 +119,17 @@ fn trace_color( scene : &Scene, ray : &Ray, max_rays : u32, refr_stack : &mut St
                 // Note, however, if the original ray starts inside a mesh, stuff goes wrong (so don't do this =D )
                 if h.is_entering {
                   // This object is the contained object's outside
-                  refr_stack.push( RefractMat { absorption: Some( absorption ), refractive_index: obj_refractive_index } );
-                  let (d,c) = trace_original_color( scene, &refr_ray, max_rays - 1, refr_stack );
+                  refr_stack.push( MatRefract::new( absorption, obj_refractive_index ) );
+                  let (d,c) = trace_color( scene, &refr_ray, max_rays - 1, refr_stack );
                   refr_stack.pop_until1( );
                   c * ( -absorption * d ).exp( )
                 } else { // leaving the object
                   // Note that in this case the material was popped before, and is pushed after
                   // Which is done externally
-                  let (d,c) = trace_original_color( scene, &refr_ray, max_rays - 1, refr_stack );
+                  let (d,c) = trace_color( scene, &refr_ray, max_rays - 1, refr_stack );
 
-                  if let Some( a ) = refr_stack.top( ).unwrap( ).absorption {
-                    c * ( -a * d ).exp( )
-                  } else { // air has no absorption color (at least, not in my model of air)
-                    c
-                  }
+                  let a = refr_stack.top( ).unwrap( ).absorption;
+                  c * ( -a * d ).exp( )
                 }
               } else { // No refraction. Total internal reflection
                 kr = 1.0;
@@ -133,14 +144,14 @@ fn trace_color( scene : &Scene, ray : &Ray, max_rays : u32, refr_stack : &mut St
 
           if is_popped {
             // This was popped before, so put it back. We're inside the object again
-            refr_stack.push( RefractMat { absorption: Some( absorption ), refractive_index } )
+            refr_stack.push( MatRefract::new( absorption, refractive_index ) );
           }
 
           let refl_color =
             if max_rays > 0 && kr > 0.0 {
               let refl_dir = (-ray.dir).reflect( h.normal );
               let refl_ray = Ray::new( hit_loc + refl_dir * math::EPSILON, refl_dir );
-              let (_, c) = trace_original_color( scene, &refl_ray, max_rays - 1, refr_stack );
+              let (_, c) = trace_color( scene, &refl_ray, max_rays - 1, refr_stack );
               c
             } else {
               // This means very little, but happens when the rays don't want to
@@ -177,10 +188,10 @@ fn lights_color( scene : &Scene, hit_loc : &Vec3, hit_normal : &Vec3 ) -> Color3
 // Borrowed from:
 // https://www.scratchapixel.com/lessons/3d-basic-rendering/introduction-to-shading/reflection-refraction-fresnel
 fn refract( i : Vec3, mut n : Vec3, prev_ior : f32, ior : f32 ) -> Option< Vec3 > {
-  let mut cosi = clamp( i.dot( n ), -1.0, 1.0 );
+  let mut cosi = math::clamp( i.dot( n ), -1.0, 1.0 );
   let mut etai = prev_ior;
   let mut etat = ior;
-  if cosi < 0.0 { cosi = -cosi; } else { swap( &mut etai, &mut etat ); n = -n; }
+  if cosi < 0.0 { cosi = -cosi; } else { std::mem::swap( &mut etai, &mut etat ); n = -n; }
   let eta = etai / etat;
   let k = 1.0 - eta * eta * (1.0 - cosi * cosi);
   if k < 0.0 {

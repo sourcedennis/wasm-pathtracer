@@ -1,5 +1,5 @@
-use crate::math::vec3::{Vec3};
-use crate::graphics::material::Material;
+use crate::math::{Vec2, Vec3};
+use crate::graphics::Material;
 use crate::graphics::ray::{Ray, Tracable, Hit};
 
 /// A Sphere primitive
@@ -60,6 +60,42 @@ impl Tracable for Sphere {
         -( ray.at( t ) - self.location ) / self.radius
       };
 
-    return Some( Hit::new( t, normal, self.mat, is_entering ) );
+    let mat =
+      if let Some( v ) = self.mat.evaluate_simple( ) {
+        v
+      } else {
+        // TODO: UV mapping
+        self.mat.evaluate_at( &Vec2::ZERO )
+      };
+    Some( Hit::new( t, normal, mat, is_entering ) )
+  }
+  
+  fn trace_simple( &self, ray : &Ray ) -> Option< f32 > {
+    // Using algebraic solution. (Non-geometric)
+    // Solve: ((O-P)+D*t)^2 - R^2
+    let a = 1_f32; // D^2
+    let b = 2_f32 * ray.dir.dot( ray.origin - self.location );
+    let c = ( ray.origin - self.location ).dot( ray.origin - self.location ) - self.radius*self.radius;
+    let d = b * b - 4_f32 * a * c;
+
+    if d < 0_f32 { // There is no intersection
+      return None;
+    }
+
+    // Find both sphere intersections
+    let d_sqrt = d.sqrt( );
+    let t0 = ( -b + d_sqrt ) / ( 2_f32 * a );
+    let t1 = ( -b - d_sqrt ) / ( 2_f32 * a );
+
+    let mut t = t0.min( t1 );
+    if t <= 0_f32 {
+      t = t0.max( t1 );
+
+      if t <= 0_f32 { // The sphere is fully behind the "camera"
+        return None
+      }
+    }
+
+    Some( t )
   }
 }

@@ -1,5 +1,5 @@
-use crate::math::vec3::Vec3;
-use crate::graphics::material::{Material};
+use crate::math::Vec3;
+use crate::graphics::{PointMaterial};
 
 // A module with `Ray` and `Hit` structures, that are useful for raytracing
 //
@@ -31,16 +31,6 @@ impl Ray {
   }
 }
 
-// enum DelayedNormal {
-//   Fixed( Vec3 ),
-//   Triangle( Vec3, Vec3 ) // idk
-// }
-
-// enum DelayedMaterial {
-//   Fixed( Material ),
-//   Texture( ) // idk
-// }
-
 /// A `Hit` in 3-dimensional space
 /// This is typically used as the intersection of a ray with a surface
 /// The Hit contains the properties of the intersected surface at the
@@ -52,8 +42,7 @@ pub struct Hit {
   // TODO: Make its computation delayed
   pub normal      : Vec3,
   /// The material of the surface at the intersection point
-  // TODO: Make its computation delayed (e.g. for texture lookups)
-  pub mat         : Material,
+  pub mat         : PointMaterial,
   /// True if the rays comes from the outside, pointing into the shape
   ///   Defining the "inside" and "outside" of a shape, is the responsibility
   ///   of that particular shape.
@@ -62,12 +51,20 @@ pub struct Hit {
 
 impl Hit {
   /// Constructs a new `Hit` at a distance from its ray origin
-  pub fn new( distance : f32, normal : Vec3, mat : Material, is_entering : bool ) -> Hit {
+  pub fn new( distance : f32, normal : Vec3, mat : PointMaterial, is_entering : bool ) -> Hit {
     Hit { distance, normal, mat, is_entering }
   }
 }
 
 /// A trait for physical objects, with which a ray of light can be intersected
 pub trait Tracable {
+  fn trace_simple( &self, ray : &Ray ) -> Option< f32 > {
+    if let Some( h ) = self.trace( ray ) {
+      Some( h.distance )
+    } else {
+      None
+    }
+  }
+
   fn trace( &self, ray : &Ray ) -> Option< Hit >;
 }

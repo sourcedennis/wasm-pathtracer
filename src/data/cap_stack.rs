@@ -5,7 +5,7 @@
 ///
 /// For example, when tracking materials along a ray that has a
 ///   maximum bouncing depth =D
-struct Stack< T > {
+pub struct Stack< T > {
   data : Vec< T >,
   size : usize
 }
@@ -22,7 +22,7 @@ impl< T: Clone + Copy > Stack< T > {
   // pushed unto the stack
   // Warning: Does not test whether `capacity >= 1`
   pub fn new1( capacity : usize, default_val : T ) -> Stack< T > {
-    Stack { data: vec![ default_val, capacity ], size: 1 }
+    Stack { data: vec![ default_val; capacity ], size: 1 }
   }
 
   /// Pushes an element to the stack

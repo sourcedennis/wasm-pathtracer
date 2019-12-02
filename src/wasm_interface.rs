@@ -6,8 +6,7 @@ use std::collections::HashMap;
 use crate::data::cap_stack::{Stack};
 use crate::graphics::scene::{Scene};
 use crate::graphics::ray::{Ray};
-use crate::graphics::primitives::{AARect,Plane,Sphere,Triangle};
-use crate::math::vec3::{Vec3};
+use crate::math::{Vec3};
 use crate::scenes::{setup_scene, setup_ball_scene, setup_scene_ballsphere};
 use crate::tracer::{MatRefract, Camera, trace_original_color, trace_original_depth};
 
@@ -54,7 +53,7 @@ struct Config {
 
   // ## Preallocation Stuff
   //      (avoids dynamic allocation)
-  mat_stack       : Stack< RefractMat >,
+  mat_stack       : Stack< MatRefract >,
 }
 
 /// This is global state, which it must be. WASM is called through
@@ -67,34 +66,47 @@ static mut CONFIG : Option< Config > = None;
 pub fn init( width : u32, height : u32, scene_id : u32, is_depth : u32, max_ray_depth : u32
            , cam_x : f32, cam_y : f32, cam_z : f32, cam_rot_x : f32, cam_rot_y : f32 ) {
   unsafe {
-    // Preserve global state
-    let prev_meshes =
-      if let Some( conf ) = CONFIG {
-        conf.meshes
-      } else {
-        HashMap::new( )
-      };
-
-    CONFIG = Some( Config {
-      // ## Global State
-      meshes:           prev_meshes
-
+    // Here is quite some code duplication, but this is hard to avoid as global state needs
+    // to remain preserved. Doing this otherwise causes Rust to allocate a copy of this global
+    // state, which is too expensive. (It contains all triangle meshes)
+    if let Some( ref mut conf ) = CONFIG {
+      // Preserve global state
       // ## Session State
-    , viewport_width:   width
-    , viewport_height:  height
-    , is_depth:         is_depth != 0
-    , resultbuffer:      vec![0; (width*height*4) as usize]
-      // Note that the actual pixels for this "thread" are distributed by JavaScript
-    , pixel_coords:     vec![(0,0); (width*height) as usize]
-    , rays:             vec![Ray::new( Vec3::ZERO, Vec3::ZERO ); (width*height) as usize]
-    , num_rays:         0
-    , scene:            select_scene( scene_id )
-    , max_ray_depth
-    , camera:           Camera::new( Vec3::new( cam_x, cam_y, cam_z ), cam_rot_x, cam_rot_y )
+      conf.viewport_width  = width;
+      conf.viewport_height = height;
+      conf.is_depth        = ( is_depth != 0 );
+      conf.resultbuffer     = vec![0; (width*height*4) as usize];
+      conf.pixel_coords    = vec![(0,0); (width*height) as usize];
+      conf.rays            = vec![Ray::new( Vec3::ZERO, Vec3::ZERO ); (width*height) as usize];
+      conf.num_rays        = 0;
+      conf.scene           = select_scene( scene_id );
+      conf.max_ray_depth   = max_ray_depth;
+      conf.camera          = Camera::new( Vec3::new( cam_x, cam_y, cam_z ), cam_rot_x, cam_rot_y );
 
       // ## Preallocation Stuff
-    , mat_stack:        Stack::new1( ( max_ray_depth + 1 ) as usize, RefractMat::AIR )
-    } );
+      conf.mat_stack       = Stack::new1( ( max_ray_depth + 1 ) as usize, MatRefract::AIR );
+    } else {
+      CONFIG = Some( Config {
+        // ## Global State
+        meshes:           HashMap::new( )
+
+        // ## Session State
+      , viewport_width:   width
+      , viewport_height:  height
+      , is_depth:         is_depth != 0
+      , resultbuffer:      vec![0; (width*height*4) as usize]
+        // Note that the actual pixels for this "thread" are distributed by JavaScript
+      , pixel_coords:     vec![(0,0); (width*height) as usize]
+      , rays:             vec![Ray::new( Vec3::ZERO, Vec3::ZERO ); (width*height) as usize]
+      , num_rays:         0
+      , scene:            select_scene( scene_id )
+      , max_ray_depth
+      , camera:           Camera::new( Vec3::new( cam_x, cam_y, cam_z ), cam_rot_x, cam_rot_y )
+
+        // ## Preallocation Stuff
+      , mat_stack:        Stack::new1( ( max_ray_depth + 1 ) as usize, MatRefract::AIR )
+      } );
+    };
   }
 }
 
@@ -141,15 +153,14 @@ pub fn ray_store_done( ) {
       // - Then translate the origin
 
       if let Some( ref mut conf ) = CONFIG {
-        let uw = conf.viewport_width as usize;
-        let uh = conf.viewport_height as usize;
+        let fw = conf.viewport_width as f32;
+        let fh = conf.viewport_height as f32;
+        let w_inv = 1.0 / fw as f32;
+        let h_inv = 1.0 / fh as f32;
+        let ar = fw / fh;
 
         for i in 0..(conf.num_rays as usize) {
           let (x,y) = conf.pixel_coords[ i ];
-
-          let w_inv = 1.0 / conf.viewport_width as f32;
-          let h_inv = 1.0 / conf.viewport_height as f32;
-          let ar = conf.viewport_width as f32 / conf.viewport_height as f32;
 
           let fx = ( ( x as f32 + 0.5_f32 ) * w_inv - 0.5_f32 ) * ar;
           let fy = 0.5_f32 - ( y as f32 + 0.5_f32 ) * h_inv;
@@ -175,7 +186,7 @@ pub fn update_params( is_depth : u32, max_ray_depth : u32 ) {
     if let Some( ref mut conf ) = CONFIG {
       conf.is_depth      = ( is_depth != 0 );
       conf.max_ray_depth = max_ray_depth;
-      conf.mat_stack     = Stack::new1( ( max_ray_depth + 1 ) as usize, RefractMat::AIR );
+      conf.mat_stack     = Stack::new1( ( max_ray_depth + 1 ) as usize, MatRefract::AIR );
     } else {
       panic!( "init not called" )
     }
@@ -226,9 +237,9 @@ pub fn compute( ) {
       // These two loops are extracted (instead of checking for `is_depth` in the body),
       //   because I'm unsure whether the compiler hoists this. So, I hoist it.
       if conf.is_depth {
-        compute_depth( &mut conf )
+        compute_depth( conf )
       } else {
-        compute_color( &mut conf )
+        compute_color( conf )
       }
     } else {
       panic!( "init not called" )
@@ -238,12 +249,10 @@ pub fn compute( ) {
 
 /// Traces rays to obtain a depth buffer of the scene (for assigned pixels)
 fn compute_depth( conf : &mut Config ) {
-  let mat_stack = &mut conf.mat_stack;
-
   for i in 0..(conf.num_rays as usize) {
     let (x, y) = conf.pixel_coords[ i ];
 
-    let res = trace_original_depth( &conf.scene, &conf.rays[ i ] ).clamp( );
+    let res = trace_original_depth( &conf.scene, &conf.rays[ i ] );
 
     conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
     conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
@@ -260,7 +269,7 @@ fn compute_color( conf : &mut Config ) {
     let (x, y) = conf.pixel_coords[ i ];
 
     // Note that `mat_stack` already contains the "material" for air (so now it's a stack of air)
-    let (d, res) = trace_original_color( &conf.scene, &conf.rays[ i ], conf.max_ray_depth, mat_stack );
+    let res = trace_original_color( &conf.scene, &conf.rays[ i ], conf.max_ray_depth, mat_stack );
 
     conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
     conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
@@ -276,5 +285,5 @@ fn select_scene( id : u32 ) -> Scene {
     1 => setup_ball_scene( ),
     2 => setup_scene_ballsphere( ),
     _ => setup_scene( )
-  };
+  }
 }

@@ -1,5 +1,4 @@
-use crate::math::{clamp};
-use crate::math::vec3::{Vec3};
+use crate::math::{clamp, Vec3};
 use std::ops;
 
 /// A floating point Color class with operations
@@ -29,6 +28,12 @@ impl Color3 {
     let c_blue  = clamp( blue,  0.0_f32, 1.0_f32 );
 
     ( Color3 { red: c_red, green: c_green, blue: c_blue } )
+  }
+
+  // Converts the (r,g,b) channels to a (x,y,z) vector
+  // This is convienient when clamped values are undesired
+  pub fn to_vec3( self ) -> Vec3 {
+    Vec3::new( self.red, self.green, self.blue )
   }
 }
 
@@ -74,6 +79,14 @@ impl ops::Add< Color3 > for Color3 {
 
   fn add( self, v: Color3 ) -> Color3 {
     Color3::new( self.red + v.red, self.green + v.green, self.blue + v.blue )
+  }
+}
+
+impl ops::AddAssign< Color3 > for Color3 {
+  fn add_assign( &mut self, v : Color3 ) {
+    self.red   = clamp( self.red   + v.red,   0.0_f32, 1.0_f32 );
+    self.green = clamp( self.green + v.green, 0.0_f32, 1.0_f32 );
+    self.blue  = clamp( self.blue  + v.blue,  0.0_f32, 1.0_f32 );
   }
 }
 

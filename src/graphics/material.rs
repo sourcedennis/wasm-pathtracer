@@ -1,4 +1,5 @@
-use crate::graphics::color3::Color3;
+use crate::graphics::Color3;
+use crate::math::{ Vec2, Vec3 };
 
 // Exports:
 // * Material
@@ -38,15 +39,22 @@ impl Material {
     Material::Refract { absorption, refractive_index }
   }
 
+  pub fn evaluate_simple( &self ) -> Option< PointMaterial > {
+    match self {
+      Material::Reflect { .. }  => Some( self.evaluate_at( &Vec2::ZERO ) ),
+      Material::Refract { .. } => Some( self.evaluate_at( &Vec2::ZERO ) )
+    }
+  }
+
   /// The way `Material`s are defined, they can be evaluated at a specific
   ///   point on their 2d-space (which supposedly corresponds to a 3d surface
   ///   point). The produces a `PointMaterial`.
-  pub fn evaluate_at( &self, v : &Vec2 ) -> PointMaterial {
+  pub fn evaluate_at( &self, _v : &Vec2 ) -> PointMaterial {
     match self {
-      Material::Reflect { c, r } =>
-        PointMaterial::reflect( c, r ),
-      Material::Refract { a, ri } =>
-        PointMaterial::refract( a, ri )
+      Material::Reflect { color, reflection } =>
+        PointMaterial::reflect( *color, *reflection ),
+      Material::Refract { absorption, refractive_index } =>
+        PointMaterial::refract( *absorption, *refractive_index )
     }
   }
 }
@@ -57,9 +65,22 @@ impl Material {
 ///   on the surface (such as with diffuse-/normal-/specular-maps).
 /// The `PointMaterial` defines such a surface material evaluated at
 ///   *one specific point* on the surface
+#[derive(Clone,Copy)]
 pub enum PointMaterial {
   /// See `Material::Reflect`
   Reflect { color : Color3, reflection : f32 },
   /// See `Material::Refract`
   Refract { absorption : Vec3, refractive_index : f32 }
+}
+
+impl PointMaterial {
+  /// See `Material::reflect`
+  pub fn reflect( color : Color3, reflection : f32 ) -> PointMaterial {
+    PointMaterial::Reflect { color, reflection }
+  }
+
+  /// See `Material::refract`
+  pub fn refract( absorption : Vec3, refractive_index : f32 ) -> PointMaterial {
+    PointMaterial::Refract { absorption, refractive_index }
+  }
 }

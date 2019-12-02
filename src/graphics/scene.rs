@@ -1,9 +1,7 @@
-use crate::graphics::material::{Material};
-use crate::graphics::color3::{Color3};
-use crate::graphics::ray::{Ray, Hit};
+use crate::graphics::{Color3};
+use crate::graphics::ray::{Ray, Hit, Tracable};
 use crate::graphics::lights::PointLight;
-use crate::math::vec3::{Vec3};
-use crate::math::EPSILON;
+use crate::math::{Vec3, EPSILON};
 
 // A Scene consists of shapes and lights
 // The camera is *not* part of the scene
@@ -25,7 +23,7 @@ pub struct LightHit {
 
 impl Scene {
   // Constructs a new scene with the specified lights and shapes
-  pub fn new( lights : Vec< Light >, shapes : Vec< Box< dyn Tracable > > ) -> Scene {
+  pub fn new( lights : Vec< PointLight >, shapes : Vec< Box< dyn Tracable > > ) -> Scene {
     Scene { lights, shapes }
   }
 
@@ -38,7 +36,7 @@ impl Scene {
     to_light = to_light / distance;
 
     let shadow_ray = Ray::new( *hit_loc + EPSILON * to_light, to_light );
-    if !is_hit_within_sq( self.trace( &shadow_ray ), ( l.location - *hit_loc ).len_sq( ) ) {
+    if !is_hit_within_sq( self.trace_simple( &shadow_ray ), ( l.location - *hit_loc ).len_sq( ) ) {
       Some( LightHit { dir: to_light, distance, color: l.color } )
     } else {
       None
@@ -48,9 +46,9 @@ impl Scene {
 
 // Returns only true if a hit occurs and it occurs within at most `sqrt(d_sq)` units
 // `d_sq` is the square of the distance - for efficiency reasons
-fn is_hit_within_sq( m_hit : Option< Hit >, d_sq : f32 ) -> bool {
+fn is_hit_within_sq( m_hit : Option< f32 >, d_sq : f32 ) -> bool {
   if let Some( h ) = m_hit {
-    h.distance * h.distance < d_sq
+    h * h < d_sq
   } else {
     false
   }
@@ -58,28 +56,22 @@ fn is_hit_within_sq( m_hit : Option< Hit >, d_sq : f32 ) -> bool {
 
 impl Tracable for Scene {
   fn trace( &self, ray : &Ray ) -> Option< Hit > {
-    let mut best_hit: Option< Hit > = None;
+    let mut best_hit: Option< (f32, &Box< dyn Tracable >) > = None;
 
     for s in &self.shapes {
-      let new_hit: Option< Hit > = s.trace( ray );
-
-      if let Some( nh ) = new_hit {
-        if let Some( bh ) = best_hit {
-          if nh.distance < bh.distance {
-            best_hit = new_hit;
+      if let Some( new_dis ) = s.trace_simple( ray ) {
+        if let Some( (bhd, _) ) = best_hit {
+          if 0.0_f32 < new_dis && new_dis < bhd {
+            best_hit = Some( (new_dis, &s) );
           }
         } else {
-          best_hit = new_hit;
+          best_hit = Some( (new_dis, &s) );
         }
       }
     }
 
-    if let Some( bh ) = best_hit {
-      if bh.distance <= 0.0 {
-        None
-      } else {
-        best_hit
-      }
+    if let Some( ( _, best_object ) ) = best_hit {
+      best_object.trace( ray )
     } else {
       None
     }

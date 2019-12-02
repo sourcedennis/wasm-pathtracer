@@ -1,3 +1,3 @@
 mod point;
 
-pub use lights::point::{PointLight};
+pub use point::{PointLight};

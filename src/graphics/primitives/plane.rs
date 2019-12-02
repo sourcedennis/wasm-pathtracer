@@ -1,5 +1,5 @@
-use crate::math::vec3::{Vec3};
-use crate::graphics::material::Material;
+use crate::math::{Vec2, Vec3};
+use crate::graphics::Material;
 use crate::graphics::ray::{Ray, Tracable, Hit};
 
 /// An infinite plane in 3d
@@ -42,7 +42,36 @@ impl Tracable for Plane {
       // Pick the normal that points towards the ray origin, so that it is visible from both sides
       normal = -normal;
     }
+    
+    let mat =
+      if let Some( v ) = self.mat.evaluate_simple( ) {
+        v
+      } else {
+        // TODO: UV mapping
+        self.mat.evaluate_at( &Vec2::ZERO )
+      };
+    
+    Some( Hit::new( t, normal, mat, true ) )
+  }
+  
+  fn trace_simple( &self, ray : &Ray ) -> Option< f32 > {
+    let mut normal = self.normal;
+    let n_dot_dir = normal.dot( ray.dir );
 
-    return Some( Hit::new( t, normal, self.mat, true ) );
+    if n_dot_dir == 0.0 {
+      // The normal is orthogonal to the ray, so no hit
+      return None;
+    }
+
+    let o_distance = normal.dot( self.location );
+
+    let t = ( o_distance - normal.dot( ray.origin ) ) / n_dot_dir;
+
+    if t <= 0.0 {
+      // The triangle is behind the ray's origin (or equal to)
+      None
+    } else {
+      Some( t )
+    }
   }
 }

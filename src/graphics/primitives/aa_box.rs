@@ -1,5 +1,5 @@
-use crate::math::vec3::{Vec3};
-use crate::graphics::material::Material;
+use crate::math::{Vec2, Vec3};
+use crate::graphics::Material;
 use crate::graphics::ray::{Ray, Tracable, Hit};
 
 /// An axis-aligned box
@@ -59,6 +59,14 @@ impl Tracable for AARect {
     let tmin = txmin.max(tymin).max(tzmin);
     let tmax = txmax.min(tymax).min(tzmax);
 
+    let mat =
+      if let Some( v ) = self.mat.evaluate_simple( ) {
+        v
+      } else {
+        // TODO: UV mapping
+        self.mat.evaluate_at( &Vec2::ZERO )
+      };
+
     if tmin >= tmax { // Does not intersect
       None
     } else if tmin > 0.0 { // Outside the box
@@ -76,7 +84,7 @@ impl Tracable for AARect {
         } else {
           Vec3::new(  0.0,  0.0,  1.0 )
         };
-      Some( Hit::new( tmin, normal, self.mat, true ) )
+      Some( Hit::new( tmin, normal, mat, true ) )
   } else if tmax > 0.0 { // Inside the box
       let normal =
         if tmax == tx1 {
@@ -92,8 +100,42 @@ impl Tracable for AARect {
         } else {
           Vec3::new(  0.0,  0.0, -1.0 )
         };
-      Some( Hit::new( tmax, normal, self.mat, false ) )
+      Some( Hit::new( tmax, normal, mat, false ) )
     } else {
+      None
+    }
+  }
+
+  fn trace_simple( &self, ray : &Ray ) -> Option< f32 > {
+    let invdx = 1.0 / ray.dir.x;
+    let invdy = 1.0 / ray.dir.y;
+    let invdz = 1.0 / ray.dir.z;
+
+    // "Clip" the line within the box, along each axis
+    let tx1 = ( self.x_min - ray.origin.x ) * invdx;
+    let tx2 = ( self.x_max - ray.origin.x ) * invdx;
+    let ty1 = ( self.y_min - ray.origin.y ) * invdy;
+    let ty2 = ( self.y_max - ray.origin.y ) * invdy;
+    let tz1 = ( self.z_min - ray.origin.z ) * invdz;
+    let tz2 = ( self.z_max - ray.origin.z ) * invdz;
+
+    let txmin = tx1.min(tx2);
+    let tymin = ty1.min(ty2);
+    let tzmin = tz1.min(tz2);
+    let txmax = tx1.max(tx2);
+    let tymax = ty1.max(ty2);
+    let tzmax = tz1.max(tz2);
+
+    let tmin = txmin.max(tymin).max(tzmin);
+    let tmax = txmax.min(tymax).min(tzmax);
+
+    if tmin >= tmax { // Does not intersect
+      None
+    } else if tmin > 0.0 { // Outside the box
+      Some( tmin )
+    } else if tmax > 0.0 { // Inside the box
+      Some( tmax )
+    } else { // Box behind camera
       None
     }
   }
