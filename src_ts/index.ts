@@ -54,6 +54,7 @@ class Camera {
 interface Renderer {
   render( ): Promise< Uint8Array >;
   destroy( ): void;
+  updateScene( sceneId : number ): void;
   updateParams( isDepth : boolean, maxRayDepth : number ): void;
   // It *first* rotates around the x-axis, and then the y-axis. And then translation is applied
   updateCamera( cam : Camera ): void;
@@ -67,7 +68,7 @@ class SingleRenderer implements Renderer {
 
   private _isDepth
 
-  public constructor( width : number, height : number, mod : WebAssembly.Module, isDepth : boolean, rayDepth : number, camera : Camera ) {
+  public constructor( width : number, height : number, sceneId : number, mod : WebAssembly.Module, isDepth : boolean, rayDepth : number, camera : Camera ) {
     this._mod = mod;
     this._width = width;
     this._height = height;
@@ -77,7 +78,7 @@ class SingleRenderer implements Renderer {
       
     this._ins = WebAssembly.instantiate( mod, importObject ).then( ins => <any> ins ).then( ins => {
       // Pass stuff across WASM boundary
-      ins.exports.init( width, height, isDepth, rayDepth, camera.location.x, camera.location.y, camera.location.z, camera.rotX, camera.rotY );
+      ins.exports.init( width, height, sceneId, isDepth, rayDepth, camera.location.x, camera.location.y, camera.location.z, camera.rotX, camera.rotY );
       let rayPtr = ins.exports.ray_store( width * height );
       let rays = new Uint32Array( ins.exports.memory.buffer, rayPtr, width * height * 2 );
 
@@ -97,6 +98,13 @@ class SingleRenderer implements Renderer {
       let exps = <any> ins.exports;
       exps.compute( );
       return new Uint8Array( exps.memory.buffer, exps.results( ), this._width * this._height * 4 );
+    } );
+  }
+
+  public updateScene( sceneId : number ): void {
+    this._ins.then( ins => {
+      let exps = <any> ins.exports;
+      exps.update_scene( sceneId );
     } );
   }
 
@@ -128,7 +136,7 @@ class MulticoreRenderer implements Renderer {
   private          _hasUpdatedCamera : boolean;
   private          _camera           : Camera;
 
-  public constructor( width : number, height : number, mod : WebAssembly.Module
+  public constructor( width : number, height : number, sceneId, mod : WebAssembly.Module
                     , isDepth : boolean, rayDepth : number, camera : Camera, numWorkers : number ) {
     this._width   = width;
     this._height  = height;
@@ -172,7 +180,7 @@ class MulticoreRenderer implements Renderer {
           }
         }
       } );
-      this._workers[ i ].postMessage( { type: 'init', mod, pixels: bins[ i ], buffer, width, height, isDepth, rayDepth, camera } );
+      this._workers[ i ].postMessage( { type: 'init', mod, sceneId, pixels: bins[ i ], buffer, width, height, isDepth, rayDepth, camera } );
     }
   }
 
@@ -199,6 +207,12 @@ class MulticoreRenderer implements Renderer {
 
       return this._onRenderDone.promise;
     } );
+  }
+
+  public updateScene( sceneId : number ): void {
+    for ( let i = 0; i < this._workers.length; i++ ) {
+      this._workers[ i ].postMessage( { type: 'update_scene', sceneId } );
+    }
   }
 
   public destroy( ): void {
@@ -658,6 +672,10 @@ class CameraController {
     } );
   }
 
+  public get( ): Camera {
+    return this._camera;
+  }
+
   public onUpdate( ): Observable< Camera > { return this._onUpdate.observable; }
 
   public get x( ): number { return this._camera.location.x; }
@@ -706,6 +724,18 @@ class CameraController {
   }
 }
 
+function sceneCamera( sceneId : number ): Camera {
+  if ( sceneId === 0 ) { // cubes and spheres
+    return new Camera( new Vec3( -5.1, 4.6, 1.8 ), 0.54, 0.68 );
+  } else if ( sceneId === 1 ) { // simple ball
+    return new Camera( new Vec3( 0.0, 0.0, -1.0 ), 0, 0 );
+  } else if ( sceneId === 2 ) { // air hole
+    return new Camera( new Vec3( -3.7, 3.5, -0.35 ), 0.47, 0.54 );
+  } else {
+    throw new Error( 'No Scene' );
+  }
+}
+
 document.addEventListener( 'DOMContentLoaded', ev => {
   const width  = 512;
   const height = 512;
@@ -717,19 +747,18 @@ document.addEventListener( 'DOMContentLoaded', ev => {
   let isMulticore      = false;
   let rayDepth         = 1;
   let isRenderingDepth = false; // depth-map vs color
-  let camera           = new Camera( new Vec3( 0.0, 0.0, -1.0 ), 0, 0 );
-  let cameraController = new CameraController( camera );
+  let sceneId          = 0;
+  let cameraController = new CameraController( sceneCamera( sceneId ) );
 
   (<any>WebAssembly).compileStreaming(fetch('pkg/index_bg.wasm'), { } ).then( compiledMod => {
     //const instance = compiledMod.instance;
     let target = new RenderTarget( width, height );
     let canvasElem = new CanvasElement( canvas, target );
     //let renderer = new SingleRenderer( width, height, compiledMod );
-    let renderer: Renderer = new SingleRenderer( width, height, compiledMod, isRenderingDepth, rayDepth, camera );
+    let renderer: Renderer = new SingleRenderer( width, height, sceneId, compiledMod, isRenderingDepth, rayDepth, cameraController.get( ) );
     let fpsTracker = new FpsTracker( );
 
     cameraController.onUpdate( ).subscribe( c => {
-      camera = c;
       renderer.updateCamera( c );
     } );
     
@@ -767,10 +796,17 @@ document.addEventListener( 'DOMContentLoaded', ev => {
         fpsTracker.clear( );
       }
       if ( isMulticore ) {
-        renderer = new MulticoreRenderer( width, height, compiledMod, isRenderingDepth, rayDepth, camera, 8 );
+        renderer = new MulticoreRenderer( width, height, sceneId, compiledMod, isRenderingDepth, rayDepth, cameraController.get( ), 8 );
       } else {
-        renderer = new SingleRenderer( width, height, compiledMod, isRenderingDepth, rayDepth, camera );
+        renderer = new SingleRenderer( width, height, sceneId, compiledMod, isRenderingDepth, rayDepth, cameraController.get( ) );
       }
+    } );
+    app.ports.updateScene.subscribe( sid => {
+      sceneId = sid;
+      renderer.updateScene( sid );
+
+      cameraController.set( sceneCamera( sid ) );
+      renderer.updateCamera( cameraController.get( ) );
     } );
 
     function render( ): Promise< void > {

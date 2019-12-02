@@ -25,7 +25,7 @@ onmessage = ev => {
 
     ( <any> WebAssembly ).instantiate( mod, importObject ).then( ins => {
       let iStartTime = Date.now( );
-      ins.exports.init( msg.width, msg.height, msg.isDepth, msg.rayDepth
+      ins.exports.init( msg.width, msg.height, msg.sceneId, msg.isDepth, msg.rayDepth
         , camera.location.x, camera.location.y, camera.location.z, camera.rotX, camera.rotY );
 
       let rayPtr = ins.exports.ray_store( msg.pixels.length );
@@ -63,5 +63,7 @@ onmessage = ev => {
   } else if ( msg.type === 'update_camera' ) {
     let cam = msg.camera;
     instance.exports.update_camera( cam.location.x, cam.location.y, cam.location.z, cam.rotX, cam.rotY );
+  } else if ( msg.type === 'update_scene' ) {
+    instance.exports.update_scene( msg.sceneId );
   }
 };

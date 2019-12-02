@@ -6,7 +6,7 @@ import Html.Attributes exposing (class, id, style)
 import Html.Events exposing (onClick)
 import String exposing (fromInt, fromFloat)
 
--- port callRestart : () -> Cmd msg
+port updateScene : Int -> Cmd msg
 port updateRenderType : Int -> Cmd msg
 port updateReflectionDepth : Int -> Cmd msg
 port updateRunning : Bool -> Cmd msg
@@ -14,7 +14,8 @@ port updateMulticore : Bool -> Cmd msg
 port updatePerformance : ( (Int, Int, Int) -> msg ) -> Sub msg
 
 type alias Model =
-  { renderType      : RenderType
+  { scene           : Scene
+  , renderType      : RenderType
   , reflectionDepth : Int
     -- Render time over the last second
   , performanceAvg  : Int
@@ -26,14 +27,27 @@ type alias Model =
   , isRunning       : Bool
   }
 
+type Scene
+  = Scene1
+  | SceneSimpleBall
+  | SceneAirHole
+
 type RenderType = RenderColor | RenderDepth
 
 type Msg
   = UpdatePerformance Int Int Int -- render times: avg min max
+  | SelectScene Scene
   | SelectType RenderType
   | SelectReflectionDepth Int
   | SelectMulticore Bool
   | SelectRunning Bool -- Play/Pause (Play=True)
+
+sceneId : Scene -> Int
+sceneId s =
+  case s of
+    Scene1          -> 0
+    SceneSimpleBall -> 1
+    SceneAirHole    -> 2
 
 main =
   Browser.element
@@ -49,7 +63,8 @@ subscriptions model =
 
 init : Model
 init =
-  { renderType      = RenderColor
+  { scene           = Scene1
+  , renderType      = RenderColor
   , reflectionDepth = 1
   , performanceAvg  = 0
   , performanceMin  = 0
@@ -63,6 +78,8 @@ update msg model =
   case msg of
     UpdatePerformance avg low high ->
       ( { model | performanceAvg = avg, performanceMin = low, performanceMax = high }, Cmd.none )
+    SelectScene s ->
+      ( { model | scene = s }, updateScene (sceneId s) )
     SelectType t ->
       let rtInt =
             case t of
@@ -83,6 +100,18 @@ view m =
   div [ id "sidepanel" ]
     [ h2 [] [ text "Settings" ]
     , hr [] []
+    , div []
+        [ span [] [ text "Scene" ]
+        , buttonC (m.scene == Scene1) (SelectScene Scene1)
+            [ class "choice", class "top", style "width" "160pt", style "text-align" "left" ]
+            [ text "Cube and spheres" ]
+        , buttonC (m.scene == SceneSimpleBall) (SelectScene SceneSimpleBall)
+            [ class "choice", class "middle", style "width" "160pt", style "border-left" "none", style "border-top" "1px solid white", style "text-align" "left" ]
+            [ text "Simple Ball" ]
+        , buttonC (m.scene == SceneAirHole) (SelectScene SceneAirHole)
+            [ class "choice", class "bottom", style "width" "160pt", style "text-align" "left" ]
+            [ text "Air Hole" ]
+        ]
     , div []
         [ span [] [ text "Render type" ]
         , buttonC (m.renderType == RenderColor) (SelectType RenderColor)
