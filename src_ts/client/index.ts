@@ -1,15 +1,18 @@
 import { Observable, XObservable }     from '@s/event/observable';
-import { Elm }                         from './SidePanel.elm';
-///import { parseObj, Triangles } from './obj_parser';
 import { Vec3 }                        from '@s/math/vec3';
 import { Camera }                      from '@s/graphics/camera';
-import { CameraController }            from './input/camera_controller';
+import { Triangles }                   from '@s/graphics/triangles';
+import { CHECKER_RED_YELLOW, Texture }          from '@s/graphics/texture';
 import { Runner }                      from './control/runner';
 import { RenderTarget, CanvasElement } from './control/render_target';
 import { FpsTracker }                  from './control/fps_tracker';
+import { CameraController }            from './input/camera_controller';
 import { Raytracer }                   from './raytracer';
 import { SinglecoreRaytracer }         from './raytracer/singlecore';
 import { MulticoreRaytracer }          from './raytracer/multicore';
+import { Elm }                         from './SidePanel.elm';
+import { parseObj }                    from './obj_parser';
+import { MeshId }                      from './meshes';
 
 // A configuration for the raytracer
 // It is modified by UI options
@@ -60,6 +63,10 @@ class Global {
   private readonly _fpsTracker       : FpsTracker;
   // This continuously calls the raytrace function
   private          _runner           : Runner | undefined;
+  // All the meshes that were loaded (as polygon soup)
+  private          _meshes           : Map< number, Triangles >;
+  // All the textures that were loaded
+  private          _textures         : Map< number, Texture >;
 
   // The on-screen canvas
   private readonly _canvas       : HTMLCanvasElement;
@@ -77,10 +84,12 @@ class Global {
 
     this._target       = new RenderTarget( this._config.width, this._config.height );
     this._canvasElem   = new CanvasElement( canvas, this._target );
-    this._raytracer    = this._setupRaytracer( );
     this._fpsTracker   = new FpsTracker( );
-    this._runner       = new Runner( ( ) => this._render( ) ); // It's not running yet
     this._onRenderDone = new XObservable( );
+    this._meshes       = new Map( );
+    this._textures     = new Map( );
+    this._raytracer    = this._setupRaytracer( );
+    this._runner       = new Runner( ( ) => this._render( ) ); // It's not running yet
 
     // Initially center the target in the canvas. Make sure the canvas
     // properly remains within the screen upon size
@@ -136,11 +145,26 @@ class Global {
   // Updates the scene that is currently rendered
   // The `sid` refers to the id of the hard-coded scene in the raytracer source.
   public updateScene( sid : number ) {
+    console.log( 'update scene', sid );
     this._config.sceneId = sid;
     this._raytracer.updateScene( sid );
 
     this._cameraController.set( sceneCamera( sid ) );
     this._raytracer.updateCamera( this._cameraController.get( ) );
+  }
+
+  // Meshes can only be loaded by JavaScript, yet they need to be passed
+  //   to the WASM module. This stores it in the global environment
+  //   any current and future renders will have these meshes available
+  // Note that meshes are "hardcoded" to be part of scenes (by their id)
+  public storeMesh( id : number, mesh : Triangles ): void {
+    this._meshes.set( id, mesh );
+    this._raytracer.storeMesh( id, mesh );
+  }
+
+  public storeTexture( id : number, texture : Texture ): void {
+    this._textures.set( id, texture );
+    this._raytracer.storeTexture( id, texture );
   }
 
   // Gets notified when a frame is done rendering
@@ -152,8 +176,10 @@ class Global {
   private _setupRaytracer( ): Raytracer {
     const c = this._config;
 
+    let tracer : Raytracer;
+
     if ( c.isMulticore ) {
-      return new MulticoreRaytracer(
+      tracer = new MulticoreRaytracer(
           c.width,
           c.height,
           c.sceneId,
@@ -164,7 +190,7 @@ class Global {
           8
         );
     } else {
-      return new SinglecoreRaytracer(
+      tracer = new SinglecoreRaytracer(
           c.width,
           c.height,
           c.sceneId,
@@ -174,6 +200,15 @@ class Global {
           this._cameraController.get( )
         );
     }
+
+    for ( let [id, mesh] of this._meshes ) {
+      tracer.storeMesh( id, mesh );
+    }
+    for ( let [id, texture] of this._textures ) {
+      tracer.storeTexture( id, texture );
+    }
+
+    return tracer;
   }
 
   private _onResize( ) {
@@ -209,6 +244,10 @@ function sceneCamera( sceneId : number ): Camera {
     return new Camera( new Vec3( 0.0, 0.0, -1.0 ), 0, 0 );
   } else if ( sceneId === 2 ) { // air hole
     return new Camera( new Vec3( -3.7, 3.5, -0.35 ), 0.47, 0.54 );
+  } else if ( sceneId === 3 ) { // .obj mesh
+    return new Camera( new Vec3( 0, 0, 0 ), 0, 0 );
+  } else if ( sceneId === 4 ) { // Whitted Turner's Scene
+    return new Camera( new Vec3( -1.1, 1.4, -2.5 ), 0.1, 0.0 );
   } else {
     throw new Error( 'No Scene' );
   }
@@ -233,10 +272,11 @@ document.addEventListener( 'DOMContentLoaded', ev => {
 
       env.onRenderDone( ).subscribe( res => app.ports.updatePerformance.send( res ) );
 
-      /*fetch( 'torus.obj' ).then( f => f.text( ) ).then( s => {
+      fetch( 'torus.obj' ).then( f => f.text( ) ).then( s => {
         let triangles = parseObj( s );
-        target.storeMesh( MeshId.MESH_RABBIT, triangles );
-        console.log( triangles );
-      } );*/
+        env.storeMesh( MeshId.MESH_TORUS, triangles );
+      } );
+
+      env.storeTexture( 0, CHECKER_RED_YELLOW );
     } );
 } );

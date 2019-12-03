@@ -1,5 +1,5 @@
 import { Msg, MsgC2WInit, MsgC2WCompute, MsgC2WUpdateCamera, MsgC2WUpdateParams
-       , MsgC2WUpdateScene, MsgW2CInitDone, MsgW2CComputeDone
+       , MsgC2WUpdateScene, MsgW2CInitDone, MsgW2CComputeDone, MsgC2WStoreMesh, MsgC2WStoreTexture
        } from '@s/worker_messages';
 import { MsgHandler } from './msg_handler';
 
@@ -16,6 +16,8 @@ handlers.register( 'compute',       handleCompute );
 handlers.register( 'update_params', handleUpdateParams )
 handlers.register( 'update_camera', handleUpdateCamera );
 handlers.register( 'update_scene',  handleUpdateScene );
+handlers.register( 'store_mesh',    handleStoreMesh );
+handlers.register( 'store_texture', handleStoreTexture );
 
 onmessage = ev => {
   handlers.handle( ev.data );
@@ -87,4 +89,21 @@ function handleUpdateCamera( msg : MsgC2WUpdateCamera ) {
 
 function handleUpdateScene( msg : MsgC2WUpdateScene ) {
   instance.exports.update_scene( msg.sceneId );
+}
+
+function handleStoreMesh( msg : MsgC2WStoreMesh ) {
+  let exps = <any> instance.exports;
+  exps.allocate_mesh( msg.id, msg.mesh.vertices.length );
+  let ptrVertices = exps.mesh_vertices( msg.id );
+  let dst = new Float32Array( exps.memory.buffer, ptrVertices, msg.mesh.vertices.length );
+  dst.set( msg.mesh.vertices );
+  exps.notify_mesh_loaded( msg.id );
+}
+
+function handleStoreTexture( msg : MsgC2WStoreTexture ) {
+  let exps = <any> instance.exports;
+  let ptrRgb = exps.allocate_texture( msg.id, msg.texture.width, msg.texture.height );
+  let dst = new Uint8Array( exps.memory.buffer, ptrRgb, msg.texture.width * msg.texture.height * 3 );
+  dst.set( msg.texture.data );
+  exps.notify_texture_loaded( msg.id );
 }

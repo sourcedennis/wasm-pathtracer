@@ -1,4 +1,5 @@
 use crate::graphics::Color3;
+use crate::graphics::Texture;
 use crate::math::{ Vec2, Vec3 };
 
 // Exports:
@@ -6,10 +7,16 @@ use crate::math::{ Vec2, Vec3 };
 // * PointMaterial
 
 /// A description of visual characteristics for a 3d shape
-#[derive(Clone,Copy)]
+#[derive(Clone)]
 pub enum Material {
   // Reflect with `reflection` set to 0.0 is diffuse
   Reflect { color : Color3, reflection : f32 },
+  // A material with a texture
+  // For now, store the textures within the material. Though, might want to make
+  //   these references in the future, as this duplicates texture data somewhat
+  //   unnecessarily. It does keep the interface/ownership management easier,
+  //   and does not impact runtime performance, though.
+  ReflectTexture { texture : Texture, reflection : f32 },
   // Note that refracting objects do *not* have a diffuse color,
   //   as their perceived color is obtained by the semi-transparent
   //   color of their material.
@@ -27,10 +34,21 @@ impl Material {
     Material::Reflect { color, reflection: 0.0 }
   }
 
+  // Constructs a new diffuse texture material
+  pub fn diffuse_texture( texture : Texture ) -> Material {
+    Material::ReflectTexture { texture, reflection: 0.0 }
+  }
+
   // Constructs a new reflective material
   // Note that when `reflection` is 0, the material is diffuse
   pub fn reflect( color : Color3, reflection : f32 ) -> Material {
     Material::Reflect { color, reflection }
+  }
+
+  // Constructs a new reflective material with a texture
+  // Note that when `reflection` is 0, the material is diffuse
+  pub fn reflect_texture( texture : Texture, reflection : f32 ) -> Material {
+    Material::ReflectTexture { texture, reflection }
   }
 
   /// Constructs a new refractive material
@@ -41,18 +59,25 @@ impl Material {
 
   pub fn evaluate_simple( &self ) -> Option< PointMaterial > {
     match self {
-      Material::Reflect { .. }  => Some( self.evaluate_at( &Vec2::ZERO ) ),
-      Material::Refract { .. } => Some( self.evaluate_at( &Vec2::ZERO ) )
+      Material::Reflect { .. }  =>
+        Some( self.evaluate_at( &Vec2::ZERO ) ),
+      Material::ReflectTexture { .. }  =>
+        None,
+      Material::Refract { .. } =>
+        Some( self.evaluate_at( &Vec2::ZERO ) )
     }
   }
 
   /// The way `Material`s are defined, they can be evaluated at a specific
   ///   point on their 2d-space (which supposedly corresponds to a 3d surface
   ///   point). The produces a `PointMaterial`.
-  pub fn evaluate_at( &self, _v : &Vec2 ) -> PointMaterial {
+  /// `v` should be within the range (0,1)x(0,1)
+  pub fn evaluate_at( &self, v : &Vec2 ) -> PointMaterial {
     match self {
       Material::Reflect { color, reflection } =>
         PointMaterial::reflect( *color, *reflection ),
+      Material::ReflectTexture { texture, reflection } =>
+        PointMaterial::reflect( texture.at( *v ), *reflection ),
       Material::Refract { absorption, refractive_index } =>
         PointMaterial::refract( *absorption, *refractive_index )
     }

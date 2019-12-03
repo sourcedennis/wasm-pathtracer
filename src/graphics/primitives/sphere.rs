@@ -1,3 +1,4 @@
+use std::f32::consts::PI;
 use crate::math::{Vec2, Vec3};
 use crate::graphics::Material;
 use crate::graphics::ray::{Ray, Tracable, Hit};
@@ -53,20 +54,24 @@ impl Tracable for Sphere {
     }
 
     // Computing this normal is cheap, so do it here
-    let normal =
-      if is_entering {
-        ( ray.at( t ) - self.location ) / self.radius
-      } else {
-        -( ray.at( t ) - self.location ) / self.radius
-      };
+    let mut normal = ( ray.at( t ) - self.location ) / self.radius;
 
     let mat =
       if let Some( v ) = self.mat.evaluate_simple( ) {
         v
       } else {
-        // TODO: UV mapping
-        self.mat.evaluate_at( &Vec2::ZERO )
+        let u = 0.5 + normal.z.atan2( normal.x ) / ( 2.0 * PI );
+        let v = 0.5 - normal.y.asin( ) / PI;
+        self.mat.evaluate_at( &Vec2::new( u, v ) )
       };
+
+    normal =
+      if is_entering {
+        normal
+      } else {
+        -normal
+      };
+    
     Some( Hit::new( t, normal, mat, is_entering ) )
   }
   

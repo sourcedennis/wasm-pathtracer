@@ -6,12 +6,11 @@ use std::collections::HashMap;
 use crate::data::cap_stack::{Stack};
 use crate::graphics::scene::{Scene};
 use crate::graphics::ray::{Ray};
+use crate::graphics::{Mesh};
+use crate::graphics::{Texture};
 use crate::math::{Vec3};
-use crate::scenes::{setup_scene, setup_ball_scene, setup_scene_ballsphere};
+use crate::scenes::{setup_scene, setup_scene_ball, setup_scene_cubesphere, setup_scene_obj, setup_scene_texture};
 use crate::tracer::{MatRefract, Camera, trace_original_color, trace_original_depth};
-
-// TODO
-struct Mesh { }
 
 // This file contains all the functions that are exposed through WebAssembly
 // Interfacing with JavaScript is a bit annoying, as only primitives (i32, i64, f32, f64)
@@ -35,6 +34,7 @@ struct Mesh { }
 struct Config {
   // ## Global State
   meshes          : HashMap< u32, Mesh >,
+  textures        : HashMap< u32, Texture >,
 
   // ## Session State
   viewport_width  : u32,
@@ -47,6 +47,7 @@ struct Config {
   // Cached original rays
   rays            : Vec< Ray >,
   num_rays        : u32,
+  scene_id        : u32,
   scene           : Scene,
   max_ray_depth   : u32,
   camera          : Camera,
@@ -75,31 +76,38 @@ pub fn init( width : u32, height : u32, scene_id : u32, is_depth : u32, max_ray_
       conf.viewport_width  = width;
       conf.viewport_height = height;
       conf.is_depth        = is_depth != 0;
-      conf.resultbuffer     = vec![0; (width*height*4) as usize];
+      conf.resultbuffer    = vec![0; (width*height*4) as usize];
       conf.pixel_coords    = vec![(0,0); (width*height) as usize];
       conf.rays            = vec![Ray::new( Vec3::ZERO, Vec3::ZERO ); (width*height) as usize];
       conf.num_rays        = 0;
-      conf.scene           = select_scene( scene_id );
+      conf.scene_id        = scene_id;
+      conf.scene           = select_scene( scene_id, &conf.meshes, &conf.textures );
       conf.max_ray_depth   = max_ray_depth;
       conf.camera          = Camera::new( Vec3::new( cam_x, cam_y, cam_z ), cam_rot_x, cam_rot_y );
 
       // ## Preallocation Stuff
       conf.mat_stack       = Stack::new1( ( max_ray_depth + 1 ) as usize, MatRefract::AIR );
     } else {
+      let meshes   = HashMap::new( );
+      let textures = HashMap::new( );
+      let scene    = select_scene( scene_id, &meshes, &textures );
+
       CONFIG = Some( Config {
         // ## Global State
-        meshes:           HashMap::new( )
+        meshes
+      , textures
 
         // ## Session State
       , viewport_width:   width
       , viewport_height:  height
       , is_depth:         is_depth != 0
-      , resultbuffer:      vec![0; (width*height*4) as usize]
+      , resultbuffer:     vec![0; (width*height*4) as usize]
         // Note that the actual pixels for this "thread" are distributed by JavaScript
       , pixel_coords:     vec![(0,0); (width*height) as usize]
       , rays:             vec![Ray::new( Vec3::ZERO, Vec3::ZERO ); (width*height) as usize]
       , num_rays:         0
-      , scene:            select_scene( scene_id )
+      , scene_id
+      , scene
       , max_ray_depth
       , camera:           Camera::new( Vec3::new( cam_x, cam_y, cam_z ), cam_rot_x, cam_rot_y )
 
@@ -165,7 +173,7 @@ pub fn ray_store_done( ) {
           let fx = ( ( x as f32 + 0.5_f32 ) * w_inv - 0.5_f32 ) * ar;
           let fy = 0.5_f32 - ( y as f32 + 0.5_f32 ) * h_inv;
 
-          let pixel = Vec3::new( fx, fy, 1.0 );
+          let pixel = Vec3::new( fx, fy, 0.8 );
           let dir   = pixel.normalize( ).rot_x( conf.camera.rot_x ).rot_y( conf.camera.rot_y );
 
           conf.rays[ i ].origin = origin;
@@ -199,13 +207,8 @@ pub fn update_params( is_depth : u32, max_ray_depth : u32 ) {
 pub fn update_scene( scene_id : u32 ) {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
-      conf.scene =
-        match scene_id {
-          0 => setup_scene( ),
-          1 => setup_ball_scene( ),
-          2 => setup_scene_ballsphere( ),
-          _ => setup_scene( ) // Should not happen
-        };
+      conf.scene_id = scene_id;
+      conf.scene    = select_scene( scene_id, &conf.meshes, &conf.textures );
     } else {
       panic!( "init not called" )
     }
@@ -221,6 +224,104 @@ pub fn update_camera( cam_x : f32, cam_y : f32, cam_z : f32, cam_rot_x : f32, ca
     if let Some( ref mut conf ) = CONFIG {
       conf.camera = Camera::new( Vec3::new( cam_x, cam_y, cam_z ), cam_rot_x, cam_rot_y );
       ray_store_done( );
+    } else {
+      panic!( "init not called" )
+    }
+  }
+}
+
+// Mesh allocation happens in three stages:
+// * First the space for the vertices is allocated
+// * Then TypeScript stores the vertices in WASM's memory
+// * Then, if the current scene is supposed to contain that mesh,
+//     it is rebuilt with the mesh
+//
+// This is the first stage
+#[wasm_bindgen]
+pub fn allocate_mesh( id : u32, num_vertices : u32 ) {
+  unsafe {
+    if let Some( ref mut conf ) = CONFIG {
+      conf.meshes.insert(
+          id
+        , Mesh { vertices: vec![Vec3::ZERO; num_vertices as usize] }
+        );
+    } else {
+      panic!( "init not called" )
+    }
+  }
+}
+
+// Obtains a pointer to the mesh vertices
+#[wasm_bindgen]
+pub fn mesh_vertices( id : u32 ) -> *mut Vec3 {
+  unsafe {
+    if let Some( ref mut conf ) = CONFIG {
+      if let Some( ref mut m ) = conf.meshes.get_mut( &id ) {
+        m.vertices.as_mut_ptr( )
+      } else {
+        panic!( "Mesh not allocated" )
+      }
+    } else {
+      panic!( "init not called" )
+    }
+  }
+}
+
+// Notifies the raytracer that all the mesh vertices are placed in WASM
+// memory. Returns `true` if a scene with the loaded mesh is currently rendering
+#[wasm_bindgen]
+pub fn notify_mesh_loaded( id : u32 ) -> bool {
+  unsafe {
+    if let Some( ref mut conf ) = CONFIG {
+      // Scene 3 is the scene with the external mesh
+      // If that's the case, then reload the scene
+      if conf.scene_id == 3 {
+        conf.scene = select_scene( conf.scene_id, &conf.meshes, &conf.textures );
+        true
+      } else {
+        false
+      }
+    } else {
+      panic!( "init not called" )
+    }
+  }
+}
+
+// Allocates a texture identifier by the provided `id` with the provided size
+// Returns a pointer to the u8 RGB store location
+#[wasm_bindgen]
+pub fn allocate_texture( id : u32, width : u32, height : u32 ) -> *mut (u8,u8,u8) {
+  unsafe {
+    if let Some( ref mut conf ) = CONFIG {
+      conf.textures.insert(
+          id
+        , Texture::new( width, height )
+        );
+      if let Some( t ) = conf.textures.get_mut( &id ) {
+        t.data.as_mut_ptr( )
+      } else {
+        // Shouldn't happen
+        panic!( "HashMap error" )
+      }
+    } else {
+      panic!( "init not called" )
+    }
+  }
+}
+
+// Notifies the raytracer that the texture RGB data has been put into WASM's
+// memory. If the current scene is using that texture, the scene is updated
+#[wasm_bindgen]
+pub fn notify_texture_loaded( id : u32 ) -> bool {
+  unsafe {
+    if let Some( ref mut conf ) = CONFIG {
+      // Scene 4 is whitted's scene
+      if conf.scene_id == 4 {
+        conf.scene = select_scene( conf.scene_id, &conf.meshes, &conf.textures );
+        true
+      } else {
+        false
+      }
     } else {
       panic!( "init not called" )
     }
@@ -279,11 +380,18 @@ fn compute_color( conf : &mut Config ) {
 }
 
 // Scenes are numbered in the interface. This functions performs the mapping
-fn select_scene( id : u32 ) -> Scene {
+// Note that some scenes require externally obtained meshes, that's why these
+//   are passed along as well
+fn select_scene( id       : u32
+               , meshes   : &HashMap< u32, Mesh >
+               , textures : &HashMap< u32, Texture >
+               ) -> Scene {
   match id {
     0 => setup_scene( ),
-    1 => setup_ball_scene( ),
-    2 => setup_scene_ballsphere( ),
-    _ => setup_scene( )
+    1 => setup_scene_ball( ),
+    2 => setup_scene_cubesphere( ),
+    3 => setup_scene_obj( meshes ),
+    4 => setup_scene_texture( textures ),
+    _ => panic!( "Invalid scene" )
   }
 }

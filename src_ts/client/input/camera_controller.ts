@@ -84,6 +84,7 @@ export class CameraController {
         let c = this._camera;
         this._camera = new Camera( c.location.add( translation ), c.rotX, c.rotY );
         this._onUpdate.next( this._camera );
+        // console.log( c );
       }
     } );
   }

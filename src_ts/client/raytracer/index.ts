@@ -1,4 +1,6 @@
-import { Camera } from '@s/graphics/camera';
+import { Camera }    from '@s/graphics/camera';
+import { Triangles } from '@s/graphics/triangles';
+import { Texture }   from '@s/graphics/texture';
 
 // The interface that all raytraces implement
 // It is configured with parameters (scene, camera, ray depth, etc.)
@@ -33,4 +35,12 @@ export interface Raytracer {
 
   // Updates the render viewport
   updateViewport( width : number, height : number ): void;
+
+  // Meshes are obtained (e.g. read from a file) externally, and provided to
+  // the raytracer through this method.
+  storeMesh( id : number, mesh : Triangles ): void;
+
+  // Textures are obtained externally, and sent to the raytracer through this
+  // method.
+  storeTexture( id : number, texture : Texture ): void;
 }

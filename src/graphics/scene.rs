@@ -8,8 +8,9 @@ use crate::math::{Vec3, EPSILON};
 //
 // (For specific scenes, look at the `/scenes.rs` file)
 pub struct Scene {
-  pub lights : Vec< PointLight >,
-  pub shapes : Vec< Box< dyn Tracable > >
+  pub background : Color3,
+  pub lights     : Vec< PointLight >,
+  pub shapes     : Vec< Box< dyn Tracable > >
 }
 
 // A "hit" for a pointlight source
@@ -23,8 +24,10 @@ pub struct LightHit {
 
 impl Scene {
   // Constructs a new scene with the specified lights and shapes
-  pub fn new( lights : Vec< PointLight >, shapes : Vec< Box< dyn Tracable > > ) -> Scene {
-    Scene { lights, shapes }
+  pub fn new( background : Color3
+            , lights : Vec< PointLight >
+            , shapes : Vec< Box< dyn Tracable > > ) -> Scene {
+    Scene { background, lights, shapes }
   }
 
   // Casts a shadow ray from the `hit_loc` to all lights in the scene

@@ -1,5 +1,7 @@
-import { Camera } from './graphics/camera';
-import { Vec2 } from './math/vec2';
+import { Camera }    from './graphics/camera';
+import { Vec2 }      from './math/vec2';
+import { Triangles } from './graphics/triangles';
+import { Texture }   from './graphics/texture';
 
 export interface Msg {
   type : string;
@@ -35,6 +37,18 @@ export interface MsgC2WUpdateParams extends Msg {
 export interface MsgC2WUpdateScene extends Msg {
   type    : 'update_scene',
   sceneId : number
+}
+
+export interface MsgC2WStoreMesh extends Msg {
+  type : 'store_mesh',
+  id   : number,
+  mesh : Triangles
+}
+
+export interface MsgC2WStoreTexture extends Msg {
+  type    : 'store_texture',
+  id      : number,
+  texture : Texture
 }
 
 export interface MsgC2WCompute extends Msg {

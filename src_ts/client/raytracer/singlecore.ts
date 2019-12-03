@@ -1,5 +1,7 @@
 import { Raytracer } from './index';
-import { Camera } from '@s/graphics/camera';
+import { Camera }    from '@s/graphics/camera';
+import { Triangles } from '@s/graphics/triangles';
+import { Texture }   from '@s/graphics/texture';
 
 // A raytracer that executes on the *main thread*, by executing the functions
 // implemented in the Rust module. As it runs on the main thread, it may hang
@@ -101,5 +103,28 @@ export class SinglecoreRaytracer implements Raytracer {
   // See `Raytracer#updateViewport()`
   public updateViewport( width : number, height : number ) {
     console.error( 'TODO: Update viewport' ); 
+  }
+
+  // See `Raytracer#storeMesh()`
+  public storeMesh( id : number, mesh : Triangles ): void {
+    this._ins.then( ins => {
+      let exps = <any> ins.exports;
+      exps.allocate_mesh( id, mesh.vertices.length );
+      let ptrVertices = exps.mesh_vertices( id );
+      let dst = new Float32Array( exps.memory.buffer, ptrVertices, mesh.vertices.length );
+      dst.set( mesh.vertices );
+      exps.notify_mesh_loaded( id );
+    } );
+  }
+
+  // See `Raytracer#storeTexture()`
+  public storeTexture( id : number, texture : Texture ): void {
+    this._ins.then( ins => {
+      let exps = <any> ins.exports;
+      let ptrRgb = exps.allocate_texture( id, texture.width, texture.height );
+      let dst = new Uint8Array( exps.memory.buffer, ptrRgb, texture.width * texture.height * 3 );
+      dst.set( texture.data );
+      exps.notify_texture_loaded( id );
+    } );
   }
 }

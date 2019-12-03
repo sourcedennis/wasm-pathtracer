@@ -166,7 +166,7 @@ fn trace_color( scene : &Scene, ray : &Ray, max_rays : u32, refr_stack : &mut St
 
     ( h.distance, color )
   } else {
-    ( 0.0, Color3::BLACK )
+    ( 0.0, scene.background )
   }
 }
 

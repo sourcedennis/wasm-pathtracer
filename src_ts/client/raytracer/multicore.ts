@@ -1,9 +1,12 @@
-import { Raytracer } from './index';
 import { EmptyPromise } from '@s/event/promise';
-import { Camera } from '@s/graphics/camera';
-import { Vec2 } from '@s/math/vec2';
-import { Msg, MsgC2WInit, MsgC2WUpdateCamera, MsgC2WUpdateParams, MsgC2WUpdateScene, MsgC2WCompute, MsgW2CInitDone } from '@s/worker_messages';
+import { Camera }       from '@s/graphics/camera';
+import { Vec2 }         from '@s/math/vec2';
+import { Triangles }    from '@s/graphics/triangles';
+import { Msg, MsgC2WInit, MsgC2WUpdateCamera, MsgC2WUpdateParams
+       , MsgC2WUpdateScene, MsgC2WCompute, MsgC2WStoreMesh, MsgC2WStoreTexture } from '@s/worker_messages';
+import { Raytracer }           from './index';
 import { shuffle, divideOver } from '../util';
+import { Texture }             from '@s/graphics/texture';
 
 // A raytracer that uses WebWorkers to raytrace (semi-hardcoded) scenes.
 //
@@ -164,6 +167,18 @@ export class MulticoreRaytracer implements Raytracer {
   // See `Raytracer#updateViewport()`
   public updateViewport( width : number, height : number ): void {
     console.error( 'TODO: Multi-core update viewport' );
+  }
+
+  // See `Raytracer#storeMesh()`
+  public storeMesh( id : number, mesh : Triangles ): void {
+    let msg : MsgC2WStoreMesh = { type: 'store_mesh', id, mesh };
+    this._postMsg( msg );
+  }
+
+  // See `Raytracer#storeTexture()`
+  public storeTexture( id : number, texture : Texture ): void {
+    let msg : MsgC2WStoreTexture = { type: 'store_texture', id, texture };
+    this._postMsg( msg );
   }
 
   // Sends a message to all the workers

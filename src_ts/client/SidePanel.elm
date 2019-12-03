@@ -1,18 +1,26 @@
 port module SidePanel exposing (main)
 
 import Browser
-import Html exposing (Html, Attribute, h2, hr, br, div, text, span, button, table, tr, td, th)
+import Html            exposing
+  (Html, Attribute, h2, hr, br, div, text, span, button, table, tr, td, th)
 import Html.Attributes exposing (class, id, style)
-import Html.Events exposing (onClick)
-import String exposing (fromInt, fromFloat)
+import Html.Events     exposing (onClick)
+import String          exposing (fromInt)
 
-port updateScene : Int -> Cmd msg
-port updateRenderType : Int -> Cmd msg
+-- This is the GUI sidepanel with which runtime parameters of the raytracer
+-- can be set. The TypeScript instance listens to the ports provided by this
+-- module.
+
+-- The ports. Note that only primitive types can be passed across
+-- So, some "magic number" (for RenderType and Scene) are passed to TypeScript
+port updateScene           : Int -> Cmd msg
+port updateRenderType      : Int -> Cmd msg
 port updateReflectionDepth : Int -> Cmd msg
-port updateRunning : Bool -> Cmd msg
-port updateMulticore : Bool -> Cmd msg
-port updatePerformance : ( (Int, Int, Int) -> msg ) -> Sub msg
+port updateRunning         : Bool -> Cmd msg
+port updateMulticore       : Bool -> Cmd msg
+port updatePerformance     : ( (Int, Int, Int) -> msg ) -> Sub msg
 
+-- The state of the side panel
 type alias Model =
   { scene           : Scene
   , renderType      : RenderType
@@ -27,10 +35,13 @@ type alias Model =
   , isRunning       : Bool
   }
 
+-- Identifiers for the hard-coded scenes
 type Scene
-  = Scene1
+  = SceneCubeAndSpheres
   | SceneSimpleBall
   | SceneAirHole
+  | SceneMesh
+  | SceneTexture
 
 type RenderType = RenderColor | RenderDepth
 
@@ -42,13 +53,7 @@ type Msg
   | SelectMulticore Bool
   | SelectRunning Bool -- Play/Pause (Play=True)
 
-sceneId : Scene -> Int
-sceneId s =
-  case s of
-    Scene1          -> 0
-    SceneSimpleBall -> 1
-    SceneAirHole    -> 2
-
+main : Program () Model Msg
 main =
   Browser.element
     { init = \() -> ( init, Cmd.none )
@@ -57,13 +62,23 @@ main =
     , subscriptions = subscriptions
     }
 
+-- "Magic numbers" for scene ids
+sceneId : Scene -> Int
+sceneId s =
+  case s of
+    SceneCubeAndSpheres -> 0
+    SceneSimpleBall     -> 1
+    SceneAirHole        -> 2
+    SceneMesh           -> 3
+    SceneTexture        -> 4
+    
 subscriptions : Model -> Sub Msg
-subscriptions model =
+subscriptions _ =
     updatePerformance <| \(x,y,z) -> UpdatePerformance x y z
 
 init : Model
 init =
-  { scene           = Scene1
+  { scene           = SceneCubeAndSpheres
   , renderType      = RenderColor
   , reflectionDepth = 1
   , performanceAvg  = 0
@@ -102,15 +117,21 @@ view m =
     , hr [] []
     , div []
         [ span [] [ text "Scene" ]
-        , buttonC (m.scene == Scene1) (SelectScene Scene1)
+        , buttonC (m.scene == SceneCubeAndSpheres) (SelectScene SceneCubeAndSpheres)
             [ class "choice", class "top", style "width" "160pt", style "text-align" "left" ]
             [ text "Cube and spheres" ]
         , buttonC (m.scene == SceneSimpleBall) (SelectScene SceneSimpleBall)
             [ class "choice", class "middle", style "width" "160pt", style "border-left" "none", style "border-top" "1px solid white", style "text-align" "left" ]
             [ text "Simple Ball" ]
         , buttonC (m.scene == SceneAirHole) (SelectScene SceneAirHole)
-            [ class "choice", class "bottom", style "width" "160pt", style "text-align" "left" ]
+            [ class "choice", class "middle", style "width" "160pt", style "border-left" "none", style "border-top" "1px solid white", style "text-align" "left" ]
             [ text "Air Hole" ]
+        , buttonC (m.scene == SceneMesh) (SelectScene SceneMesh)
+            [ class "choice", class "middle", style "width" "160pt", style "border-left" "none", style "border-top" "1px solid white", style "text-align" "left" ]
+            [ text ".obj Mesh" ]
+        , buttonC (m.scene == SceneTexture) (SelectScene SceneTexture)
+            [ class "choice", class "bottom", style "width" "160pt", style "text-align" "left" ]
+            [ text "Whitted Turner's Scene" ]
         ]
     , div []
         [ span [] [ text "Render type" ]
@@ -176,6 +197,9 @@ view m =
         button [ onClick (SelectRunning True) ] [ text "Resume" ]
     ]
 
+
+-- A checkbox button. It's checked if the provided boolean is true
+-- Only unchecked button have the event assigned
 buttonC : Bool -> msg -> List (Attribute msg) -> List (Html msg) -> Html msg
 buttonC b m attrs cs =
   if b then

@@ -6,19 +6,16 @@ pub struct Triangle {
   v0  : Vec3,
   v1  : Vec3,
   v2  : Vec3,
-  n0  : Vec3,
-  n1  : Vec3,
-  n2  : Vec3,
   mat : Material
 }
 
 impl Triangle {
-  pub fn new( v0 : Vec3, v1 : Vec3, v2 : Vec3, n0 : Vec3, n1 : Vec3, n2 : Vec3, mat : Material ) -> Triangle {
-    Triangle { v0, v1, v2, n0, n1, n2, mat }
+  pub fn new( v0 : Vec3, v1 : Vec3, v2 : Vec3, mat : Material ) -> Triangle {
+    Triangle { v0, v1, v2, mat }
   }
 
   pub fn translate( self, v : Vec3 ) -> Triangle {
-    Triangle::new( self.v0 + v, self.v1 + v, self.v2 + v, self.n0, self.n1, self.n2, self.mat )
+    Triangle::new( self.v0 + v, self.v1 + v, self.v2 + v, self.mat )
   }
 }
 
