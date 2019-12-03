@@ -1,0 +1,175 @@
+import { Raytracer } from './index';
+import { EmptyPromise } from '@s/event/promise';
+import { Camera } from '@s/graphics/camera';
+import { Vec2 } from '@s/math/vec2';
+import { Msg, MsgC2WInit, MsgC2WUpdateCamera, MsgC2WUpdateParams, MsgC2WUpdateScene, MsgC2WCompute, MsgW2CInitDone } from '@s/worker_messages';
+import { shuffle, divideOver } from '../util';
+
+// A raytracer that uses WebWorkers to raytrace (semi-hardcoded) scenes.
+//
+// This is an interface over the interaction with the WebWorkers. Where each
+// WebWorker runs an WASM module, compiled from the Rust source in `src` in the
+// project root. This Rust code is the actual raytracer.
+//
+// Note that instances of this class send messages to the WebWorkers. The
+//   implementation of these workers is defined in `src_ts/worker`.
+//
+// Warning: A `SharedArrayBuffer` is used, which is the only way of obtaining
+//   reasonable speed. However, this feature is *disabled* in some browsers.
+//   Its use is necessary, as it is the fastest way of sharing raw data between
+//   workers; thus, this is used for the output pixel buffer.
+//   See: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/SharedArrayBuffer
+//   (It works in Google Chrome)
+export class MulticoreRaytracer implements Raytracer {
+  private readonly _width        : number;
+  private readonly _height       : number;
+  private readonly _workers      : Worker[];
+  private readonly _onInitDone   : Promise< void >;
+  private          _onRenderDone : EmptyPromise< Uint8Array > | undefined;
+  // Number of workers that have raytraced all their assigned pixels for the
+  //   current frame.
+  private          _numDone      : number;
+
+  // True if the camera has updated since the last render tick
+  // This boolean is used, such that the camera is not updated more than once
+  //   before each render tick; as that would be redundant. Only the last camera
+  //   update remains.
+  private          _hasUpdatedCamera : boolean;
+  private          _camera           : Camera;
+
+  public constructor( // Viewport size
+                      width      : number
+                    , height     : number
+                      // Scene ids uniquely identify hardcoded scenes. Only used
+                      // to communicate it with Rust
+                    , sceneId    : number
+                      // The compiled WebAssembly module.
+                      // *must* be the module obtained from the `src` directory
+                    , mod        : WebAssembly.Module
+                      // True if a depth-buffer is rendered. Diffuse otherwise
+                    , isDepth    : boolean
+                      // Maximum number of ray bounces
+                    , rayDepth   : number
+                      // Scene camera
+                    , camera     : Camera
+                      // The number of webworkers to spawn
+                    , numWorkers : number ) {
+    this._width   = width;
+    this._height  = height;
+    this._workers = new Array( numWorkers );
+
+    this._camera           = camera;
+    this._hasUpdatedCamera = false;
+
+    let buffer  = new SharedArrayBuffer( width * height * 4 );
+    let buffer8 = new Uint8Array( buffer );
+
+    for ( let i = 0; i < numWorkers; i++ ) {
+      this._workers[ i ] = new Worker( 'worker.js' );
+    }
+
+    let onInit = new EmptyPromise< void >( );
+    let numInitDone  = 0;
+    this._onInitDone = onInit.promise;
+    this._numDone    = 0;
+
+    // Divide the pixels in the viewport randomly over the workers
+    // On average this equally divides the work =)
+    let rays = new Array< Vec2 >( width * height );
+    for ( let y = 0; y < height; y++ ) {
+      for ( let x = 0; x < width; x++ ) {
+        rays[ y * width + x ] = new Vec2( x, y );
+      }
+    }
+    shuffle( rays );
+    let bins = divideOver( rays, numWorkers );
+
+    // This initialises the workers, and listens for their messages
+    for ( let i = 0; i < numWorkers; i++ ) {
+      this._workers[ i ].addEventListener( 'message', ev => {
+        const typelessMsg : Msg = ev.data;
+
+        if ( typelessMsg.type === 'init_done' ) {
+          numInitDone++;
+          if ( numInitDone === numWorkers ) {
+            onInit.fulfil( );
+          }
+        } else if ( typelessMsg.type === 'compute_done' ) {
+          this._numDone++;
+          if ( this._numDone === numWorkers ) {
+            ( <EmptyPromise< Uint8Array >> this._onRenderDone ).fulfil( buffer8 );
+          }
+        }
+      } );
+
+      let initMsg : MsgC2WInit = { type: 'init', mod, sceneId, pixels: bins[ i ], buffer, width, height, isDepth, rayDepth, camera };
+      this._workers[ i ].postMessage( initMsg );
+    }
+  }
+
+  // See `Raytracer#render()`
+  public render( ): Promise< Uint8Array > {
+    let prevPromise = this._onInitDone;
+    if ( this._onRenderDone ) {
+      prevPromise = this._onRenderDone.promise.then( ( ) => { } );
+    }
+
+    return prevPromise.then( ( ) => {
+      this._numDone = 0;
+      this._onRenderDone = new EmptyPromise< Uint8Array >( );
+
+      if ( this._hasUpdatedCamera ) {
+        let cameraMsg : MsgC2WUpdateCamera = { type: 'update_camera', camera: this._camera };
+        this._postMsg( cameraMsg );
+        this._hasUpdatedCamera = false;
+      }
+
+      let computeMsg : MsgC2WCompute = { type: 'compute' };
+      this._postMsg( computeMsg );
+
+      return this._onRenderDone.promise;
+    } );
+  }
+
+  // See `Raytracer#updateScene()`
+  public updateScene( sceneId : number ): void {
+    let msg: MsgC2WUpdateScene = { type: 'update_scene', sceneId };
+    this._postMsg( msg );
+  }
+
+  // See `Raytracer#destroy()`
+  public destroy( ): void {
+    for ( let i = 0; i < this._workers.length; i++ ) {
+      this._workers[ i ].terminate( );
+    }
+    if ( this._numDone < this._workers.length ) {
+      let dst = new Uint8Array( this._width * this._height * 4 );
+      dst.fill( 255 );
+      ( <EmptyPromise< Uint8Array >> this._onRenderDone ).fulfil( dst );
+    }
+  }
+
+  // See `Raytracer#updateParams()`
+  public updateParams( isDepth : boolean, maxRayDepth : number ): void {
+    let msg : MsgC2WUpdateParams = { type: 'update_params', isDepth, maxRayDepth };
+    this._postMsg( msg );
+  }
+
+  // See `Raytracer#updateCamera()`
+  public updateCamera( camera : Camera ): void {
+    this._hasUpdatedCamera = true;
+    this._camera = camera;
+  }
+
+  // See `Raytracer#updateViewport()`
+  public updateViewport( width : number, height : number ): void {
+    console.error( 'TODO: Multi-core update viewport' );
+  }
+
+  // Sends a message to all the workers
+  private _postMsg( msg : Msg ): void {
+    for ( let i = 0; i < this._workers.length; i++ ) {
+      this._workers[ i ].postMessage( msg );
+    }
+  }
+}

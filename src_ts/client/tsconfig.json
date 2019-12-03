@@ -1,12 +1,15 @@
 {
   "compilerOptions": {
     "strictNullChecks": true,
-    "module": "es6",
+    "module": "esnext",
     "target": "es6",
     "moduleResolution": "node",
     "sourceMap": true,
     "noEmit": false,
-    "baseUrl": "./"
+    "baseUrl": "./",
+    "paths": {
+      "@s/*": [ "../shared/*" ]
+    }
   },
   "main": "index.ts"
 }

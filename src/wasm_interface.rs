@@ -74,7 +74,7 @@ pub fn init( width : u32, height : u32, scene_id : u32, is_depth : u32, max_ray_
       // ## Session State
       conf.viewport_width  = width;
       conf.viewport_height = height;
-      conf.is_depth        = ( is_depth != 0 );
+      conf.is_depth        = is_depth != 0;
       conf.resultbuffer     = vec![0; (width*height*4) as usize];
       conf.pixel_coords    = vec![(0,0); (width*height) as usize];
       conf.rays            = vec![Ray::new( Vec3::ZERO, Vec3::ZERO ); (width*height) as usize];

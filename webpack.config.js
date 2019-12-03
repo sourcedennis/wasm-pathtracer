@@ -5,7 +5,7 @@ const WasmPackPlugin = require("@wasm-tool/wasm-pack-plugin");
 
 module.exports =
   [ {
-      entry: path.resolve(__dirname, './src_ts/index.ts' ),
+      entry: path.resolve(__dirname, './src_ts/client/index.ts' ),
       output: {
           path: path.resolve(__dirname, 'dist'),
           filename: 'index.js',
@@ -30,7 +30,10 @@ module.exports =
         }]
       },
       resolve: {
-        extensions: [ '.tsx', '.ts', '.js', '.wasm', '.elm' ]
+        extensions: [ '.tsx', '.ts', '.js', '.wasm', '.elm' ],
+        alias: {
+          '@s': path.resolve(__dirname, 'src_ts/shared/'),
+        }
       },
       plugins: [
           new HtmlWebpackPlugin( {
@@ -49,7 +52,7 @@ module.exports =
       }
   },
   {
-    entry: path.resolve(__dirname, './src_ts_worker/worker.ts' ),
+    entry: path.resolve(__dirname, './src_ts/worker/worker.ts' ),
     output: {
         path: path.resolve(__dirname, 'dist'),
         filename: 'worker.js',
@@ -66,7 +69,10 @@ module.exports =
       }]
     },
     resolve: {
-      extensions: [ '.tsx', '.ts', '.js', '.wasm' ]
+      extensions: [ '.tsx', '.ts', '.js', '.wasm' ],
+      alias: {
+        '@s': path.resolve(__dirname, 'src_ts/shared/'),
+      }
     },
     mode: 'production',
   }

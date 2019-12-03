@@ -1,3 +1,4 @@
+// An immutable 3-dimensional number vector
 export class Vec3 {
   public readonly x : number;
   public readonly y : number;

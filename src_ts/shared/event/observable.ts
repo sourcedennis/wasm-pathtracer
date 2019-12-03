@@ -1,3 +1,9 @@
+// Note by Dennis:
+// I've been using this file since forever for TypeScript projects
+// It's a very minimal clone/copy/imitation of RxJS's concepts for
+// defining declarative dataflows in JavaScript; particularly for events.
+// RxJS: https://github.com/ReactiveX/rxjs
+
 type OperatorFunction< A, B > = ( input: Observable< A > ) => Observable< B >;
 
 type Maybe< T > = T | undefined;

@@ -1,4 +1,4 @@
-port module Main exposing (main)
+port module SidePanel exposing (main)
 
 import Browser
 import Html exposing (Html, Attribute, h2, hr, br, div, text, span, button, table, tr, td, th)
