@@ -42,6 +42,11 @@ type alias Model =
 
   , width           : Int
   , height          : Int
+    -- The viewport size the application is aware of
+    -- Only sent updates if they actually changed,
+    -- as viewport resizes are expensive
+  , sentWidth       : Int
+  , sentHeight      : Int
   , camera          : Camera
 
   , isMulticore     : Bool
@@ -116,6 +121,8 @@ init =
   , performanceMax  = 0
   , width           = 512
   , height          = 512
+  , sentWidth       = 512
+  , sentHeight      = 512
   , camera          = { x = 0, y = 0, z = 0, rotX = 0, rotY = 0 }
   , isMulticore     = False
   , isRunning       = True
@@ -151,7 +158,10 @@ update msg model =
       let w = min 1024 (max model.width 128)
           h = min 1024 (max model.height 128)
       in
-      ( { model | width = w, height = h }, updateViewport (w, h) )
+      if model.sentWidth /= w || model.sentHeight /= h then
+        ( { model | width = w, height = h, sentWidth = w, sentHeight = h }, updateViewport (w, h) )
+      else
+        ( { model | width = w, height = h }, Cmd.none )
     Skip -> ( model, Cmd.none )
 
 

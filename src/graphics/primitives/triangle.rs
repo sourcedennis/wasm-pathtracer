@@ -2,6 +2,8 @@ use crate::math::{Vec2, Vec3, EPSILON};
 use crate::graphics::Material;
 use crate::graphics::ray::{Ray, Tracable, Hit};
 
+/// A triangle in 3-dimensional space
+/// It's normal is inferred from the plane between the vertices
 pub struct Triangle {
   v0  : Vec3,
   v1  : Vec3,

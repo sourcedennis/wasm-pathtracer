@@ -30,6 +30,12 @@ impl Color3 {
     ( Color3 { red: c_red, green: c_green, blue: c_blue } )
   }
 
+  /// Constructs a new color from the provided Vec3
+  /// Note that the channels are clamped within the range [0-1]
+  pub fn from_vec3( v : Vec3 ) -> Color3 {
+    Color3::new( v.x, v.y, v.z )
+  }
+
   // Converts the (r,g,b) channels to a (x,y,z) vector
   // This is convienient when clamped values are undesired
   pub fn to_vec3( self ) -> Vec3 {

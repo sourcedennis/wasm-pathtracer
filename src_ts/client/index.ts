@@ -271,7 +271,7 @@ function sceneCamera( sceneId : number ): Camera {
   } else if ( sceneId === 2 ) { // air hole
     return new Camera( new Vec3( -3.7, 3.5, -0.35 ), 0.47, 0.54 );
   } else if ( sceneId === 3 ) { // .obj mesh
-    return new Camera( new Vec3( 0, 0, 0 ), 0, 0 );
+    return new Camera( new Vec3( 0.0, 0.69, 3.54 ), 0.73, 0 );
   } else if ( sceneId === 4 ) { // Whitted Turner's Scene
     return new Camera( new Vec3( -1.1, 1.4, -2.5 ), 0.1, 0.0 );
   } else {

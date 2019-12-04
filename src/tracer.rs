@@ -35,11 +35,6 @@ impl MatRefract {
   }
 }
 
-struct Mesh {
-  pub vertices : Vec< Vec3 >,
-  pub normals  : Vec< Vec3 >
-}
-
 /// The scene camera.
 /// It first rotates around the x-axis, then around the y-axis, then it translates
 pub struct Camera {
@@ -80,21 +75,24 @@ fn trace_color( scene : &Scene, ray : &Ray, max_rays : u32, refr_stack : &mut St
 
     let color =
       match h.mat {
-        PointMaterial::Reflect { color, reflection } => {
+        PointMaterial::Reflect { color, reflection, ks, n } => {
           let light_color = lights_color( scene, &hit_loc, &h.normal );
+          let specular_light_color = Color3::from_vec3( specular_lights_color( scene, &hit_loc, &ray.dir, &h.normal, ks, n ) );
 
           if max_rays > 0 && reflection > 0.0 {
             let refl_dir          = (-ray.dir).reflect( h.normal );
             let refl_ray          = Ray::new( hit_loc + math::EPSILON * refl_dir, refl_dir );
             let (_, refl_diffuse) = trace_color( scene, &refl_ray, max_rays - 1, refr_stack );
             let diffuse_color     = reflection * refl_diffuse + ( 1.0 - reflection ) * color;
-            light_color * diffuse_color
+            light_color * diffuse_color + specular_light_color
           } else { // If it's at the cap, just apply direct illumination
-            light_color * color
+            light_color * color + specular_light_color
           }
         },
 
-        PointMaterial::Refract { absorption, refractive_index } => {
+        PointMaterial::Refract { absorption, refractive_index, ks, n } => {
+          let specular_light_color = Color3::from_vec3( specular_lights_color( scene, &hit_loc, &ray.dir, &h.normal, ks, n ) );
+
           let (obj_refractive_index, outside_refr_index, is_popped) =
             if h.is_entering {
               let outside_mat = refr_stack.top( ).unwrap( );
@@ -161,7 +159,7 @@ fn trace_color( scene : &Scene, ray : &Ray, max_rays : u32, refr_stack : &mut St
               Color3::new( 1.0 - absorption.x / habs, 1.0 - absorption.y / habs, 1.0 - absorption.z / habs )
             };
 
-          refl_color * kr + refr_color * ( 1.0 - kr )
+          refl_color * kr + specular_light_color + refr_color * ( 1.0 - kr )
         }
       };
 
@@ -180,11 +178,34 @@ fn lights_color( scene : &Scene, hit_loc : &Vec3, hit_normal : &Vec3 ) -> Vec3 {
   let mut light_color = Vec3::ZERO;
   for l_id in 0..scene.lights.len( ) {
     if let Some( light_hit ) = scene.shadow_ray( &hit_loc, l_id ) {
-      // Note that `scene.shadow_ray(..)` already performs distance attenuation
-      light_color += light_hit.color * 0.0_f32.max( hit_normal.dot( light_hit.dir ) );
+      let attenuation =
+        if let Some( dis_sq ) = light_hit.distance_sq {
+          1.0 / dis_sq
+        } else {
+          1.0
+        };
+      light_color += light_hit.color * attenuation * 0.0_f32.max( hit_normal.dot( light_hit.dir ) );
     }
   }
   light_color
+}
+
+/// Computes the specular highlight from the Phong illumination model
+/// The "reflects" the light-source onto the object
+fn specular_lights_color( scene : &Scene, hit_loc : &Vec3, i : &Vec3, normal : &Vec3, ks : f32, n : f32 ) -> Vec3 {
+  if ks == 0.0 {
+    return Vec3::ZERO;
+  }
+
+  let mut specular_color = Vec3::ZERO;
+  for l_id in 0..scene.lights.len( ) {
+    if let Some( light_hit ) = scene.shadow_ray( &hit_loc, l_id ) {
+      // The reflection of the vector to the lightsource
+      let refl_l = light_hit.dir.reflect( *normal );
+      specular_color += light_hit.color * ks * 0.0_f32.max( refl_l.dot( -*i ) ).powf( n );
+    }
+  }
+  specular_color
 }
 
 /// Returns the amount (in range (0,1)) of reflection, and the angle of refraction

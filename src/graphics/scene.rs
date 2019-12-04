@@ -17,9 +17,12 @@ pub struct Scene {
 // If such a hit exists, there is a non-occluded ray from a surface point to
 //   the light source. (This is used for casting shadow rays)
 pub struct LightHit {
-  pub dir      : Vec3,
+  // The vector *to* the light source
+  pub dir         : Vec3,
   // The color of the distance-attenuated light source
-  pub color    : Vec3,
+  pub color       : Vec3,
+  // Some(..) if attenuation still needs to be applied, with squared distance
+  pub distance_sq : Option< f32 >
 }
 
 impl Scene {
@@ -42,8 +45,7 @@ impl Scene {
 
         let shadow_ray = Ray::new( *hit_loc + EPSILON * to_light, to_light );
         if !is_hit_within_sq( self.trace_simple( &shadow_ray ), distance_sq ) {
-          let attenuation = 1.0 / distance_sq;
-          Some( LightHit { dir: attenuation * to_light, color: l.color } )
+          Some( LightHit { dir: to_light, color: l.color, distance_sq: Some( distance_sq ) } )
         } else {
           None
         }
@@ -57,7 +59,7 @@ impl Scene {
         } else {
           // Note that no attenuation applies here, as the lightsource is at an
           // infinite distance anyway
-          Some( LightHit { dir: to_light, color: l.color.to_vec3( ) } )
+          Some( LightHit { dir: to_light, color: l.color.to_vec3( ), distance_sq: None } )
         }
       },
       Light::Spot( ref l ) => {
@@ -71,8 +73,7 @@ impl Scene {
         if angle_diff < l.angle {
           let shadow_ray = Ray::new( *hit_loc + EPSILON * to_light, to_light );
           if !is_hit_within_sq( self.trace_simple( &shadow_ray ), distance_sq ) {
-            let attenuation = 1.0 / distance_sq;
-            Some( LightHit { dir: attenuation * to_light, color: l.color } )
+            Some( LightHit { dir: to_light, color: l.color, distance_sq: Some( distance_sq ) } )
           } else {
             // It's occluded
             None

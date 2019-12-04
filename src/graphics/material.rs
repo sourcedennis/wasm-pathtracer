@@ -10,13 +10,15 @@ use crate::math::{ Vec2, Vec3 };
 #[derive(Clone)]
 pub enum Material {
   // Reflect with `reflection` set to 0.0 is diffuse
-  Reflect { color : Color3, reflection : f32 },
+  // `ks` and `n` are parameters of the Phong model for specular reflection
+  Reflect { color : Color3, reflection : f32, ks : f32, n : f32 },
   // A material with a texture
   // For now, store the textures within the material. Though, might want to make
   //   these references in the future, as this duplicates texture data somewhat
   //   unnecessarily. It does keep the interface/ownership management easier,
   //   and does not impact runtime performance, though.
-  ReflectTexture { texture : Texture, reflection : f32 },
+  // `ks` and `n` are parameters of the Phong model for specular reflection
+  ReflectTexture { texture : Texture, reflection : f32, ks : f32, n : f32 },
   // Note that refracting objects do *not* have a diffuse color,
   //   as their perceived color is obtained by the semi-transparent
   //   color of their material.
@@ -25,36 +27,48 @@ pub enum Material {
   //   It should be a positive amount, whose values are the
   //   "inverse" of the object's color. So if a color is blue (0,0,1)
   //   then it absorbs the color (1,1,0).
-  Refract { absorption : Vec3, refractive_index : f32 }
+  // `ks` and `n` are parameters of the Phong model for specular reflection
+  Refract { absorption : Vec3, refractive_index : f32, ks : f32, n : f32 }
 }
 
 impl Material {
   // Constructs a new diffuse material
   pub fn diffuse( color : Color3 ) -> Material {
-    Material::Reflect { color, reflection: 0.0 }
+    Material::Reflect { color, reflection: 0.0, ks: 0.0, n: 0.0 }
   }
 
   // Constructs a new diffuse texture material
   pub fn diffuse_texture( texture : Texture ) -> Material {
-    Material::ReflectTexture { texture, reflection: 0.0 }
+    Material::ReflectTexture { texture, reflection: 0.0, ks: 0.0, n: 0.0 }
   }
 
   // Constructs a new reflective material
   // Note that when `reflection` is 0, the material is diffuse
   pub fn reflect( color : Color3, reflection : f32 ) -> Material {
-    Material::Reflect { color, reflection }
+    Material::Reflect { color, reflection, ks: 0.0, n: 0.0 }
   }
 
   // Constructs a new reflective material with a texture
   // Note that when `reflection` is 0, the material is diffuse
   pub fn reflect_texture( texture : Texture, reflection : f32 ) -> Material {
-    Material::ReflectTexture { texture, reflection }
+    Material::ReflectTexture { texture, reflection, ks: 0.0, n: 0.0 }
   }
 
   /// Constructs a new refractive material
   /// See also the `Material::Refract` constructor
   pub fn refract( absorption : Vec3, refractive_index : f32 ) -> Material {
-    Material::Refract { absorption, refractive_index }
+    Material::Refract { absorption, refractive_index, ks: 0.0, n: 0.0 }
+  }
+
+  pub fn set_specular( self, new_ks : f32, new_n : f32 ) -> Material {
+    match self {
+      Material::Reflect { color, reflection, ks, n } =>
+        Material::Reflect { color, reflection, ks: new_ks, n: new_n },
+      Material::ReflectTexture { texture, reflection, ks, n } =>
+        Material::ReflectTexture { texture, reflection, ks: new_ks, n: new_n },
+      Material::Refract { absorption, refractive_index, ks, n } =>
+        Material::Refract { absorption, refractive_index, ks: new_ks, n: new_n }
+    }
   }
 
   pub fn evaluate_simple( &self ) -> Option< PointMaterial > {
@@ -74,12 +88,12 @@ impl Material {
   /// `v` should be within the range (0,1)x(0,1)
   pub fn evaluate_at( &self, v : &Vec2 ) -> PointMaterial {
     match self {
-      Material::Reflect { color, reflection } =>
-        PointMaterial::reflect( *color, *reflection ),
-      Material::ReflectTexture { texture, reflection } =>
-        PointMaterial::reflect( texture.at( *v ), *reflection ),
-      Material::Refract { absorption, refractive_index } =>
-        PointMaterial::refract( *absorption, *refractive_index )
+      Material::Reflect { color, reflection, ks, n } =>
+        PointMaterial::reflect( *color, *reflection, *ks, *n ),
+      Material::ReflectTexture { texture, reflection, ks, n } =>
+        PointMaterial::reflect( texture.at( *v ), *reflection, *ks, *n ),
+      Material::Refract { absorption, refractive_index, ks, n } =>
+        PointMaterial::refract( *absorption, *refractive_index, *ks, *n )
     }
   }
 }
@@ -93,19 +107,19 @@ impl Material {
 #[derive(Clone,Copy)]
 pub enum PointMaterial {
   /// See `Material::Reflect`
-  Reflect { color : Color3, reflection : f32 },
+  Reflect { color : Color3, reflection : f32, ks : f32, n : f32 },
   /// See `Material::Refract`
-  Refract { absorption : Vec3, refractive_index : f32 }
+  Refract { absorption : Vec3, refractive_index : f32, ks : f32, n : f32 }
 }
 
 impl PointMaterial {
   /// See `Material::reflect`
-  pub fn reflect( color : Color3, reflection : f32 ) -> PointMaterial {
-    PointMaterial::Reflect { color, reflection }
+  pub fn reflect( color : Color3, reflection : f32, ks : f32, n : f32 ) -> PointMaterial {
+    PointMaterial::Reflect { color, reflection, ks, n }
   }
 
   /// See `Material::refract`
-  pub fn refract( absorption : Vec3, refractive_index : f32 ) -> PointMaterial {
-    PointMaterial::Refract { absorption, refractive_index }
+  pub fn refract( absorption : Vec3, refractive_index : f32, ks : f32, n : f32 ) -> PointMaterial {
+    PointMaterial::Refract { absorption, refractive_index, ks, n }
   }
 }
