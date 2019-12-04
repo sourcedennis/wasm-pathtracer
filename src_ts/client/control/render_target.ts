@@ -1,4 +1,4 @@
-import { Observable, XObservable } from '@s/event/observable';
+import { Observable, XObservable, Subscription } from '@s/event/observable';
 import { clamp } from '@s/math';
 
 // This file contains the on-screen target to which the raytraced pixels
@@ -47,9 +47,13 @@ export class RenderTarget {
   // Update the pixels in the render target
   // `pixels` must be an RGBA buffer of byte size `width * height * 4`
   public update( pixels : Uint8Array ): void {
-    this._imgData.data.set( pixels );
-    this._ctx.putImageData( this._imgData, 0, 0 );
-    this._onUpdate.next( );
+    if ( pixels.length === this.width * this.height * 4 ) {
+      this._imgData.data.set( pixels );
+      this._ctx.putImageData( this._imgData, 0, 0 );
+      this._onUpdate.next( );
+    }
+    // Otherwise should not happen, but sometimes happens because background
+    // workers have not yet terminate. Ignore that output
   }
 }
 
@@ -67,6 +71,8 @@ export class CanvasElement {
   // the viewport around
   private _xOff : number;
   private _yOff : number;
+
+  private _subscription : Subscription;
 
   // Constructs a new manager for the provided canvas, which listens for updates
   // to the provided `RenderTarget`.
@@ -96,7 +102,14 @@ export class CanvasElement {
     } );
 
     // Listen for updates
-    target.onUpdate( ).subscribe( ( ) => { this._render( ); } );
+    this._subscription = target.onUpdate( ).subscribe( ( ) => { this._render( ); } );
+  }
+
+  public updateTarget( target : RenderTarget ): void {
+    this._subscription.unsubscribe( );
+    this._target = target;
+    this._subscription = target.onUpdate( ).subscribe( ( ) => { this._render( ); } );
+    this.reclamp( );
   }
 
   // Recenters the target within the screen

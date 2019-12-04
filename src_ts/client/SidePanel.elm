@@ -2,11 +2,14 @@ port module SidePanel exposing (main)
 
 import Browser
 import Html            exposing
-  (Html, Attribute, h2, hr, br, div, text, span, button, table, tr, td, th)
-import Html.Attributes exposing (class, id, style)
-import Html.Events     exposing (onClick)
-import String          exposing (fromInt, fromFloat)
+  (Html, Attribute, h2, hr, br, div, text, span, button, table, tr, td, th, input)
+import Html.Attributes exposing (class, id, style, type_)
+import Html.Attributes as Attr
+import Html.Events     exposing (onClick, onInput, onBlur, on, keyCode)
+import String          exposing (fromInt, toInt)
 import Round           as R
+import Maybe           exposing (withDefault)
+import Json.Decode     as D
 
 -- This is the GUI sidepanel with which runtime parameters of the raytracer
 -- can be set. The TypeScript instance listens to the ports provided by this
@@ -20,6 +23,7 @@ port updateRenderType      : Int -> Cmd msg
 port updateReflectionDepth : Int -> Cmd msg
 port updateRunning         : Bool -> Cmd msg
 port updateMulticore       : Bool -> Cmd msg
+port updateViewport        : (Int, Int) -> Cmd msg
 -- Incoming ports
 -- render times: (avg, min, max)
 port updatePerformance     : ( (Int, Int, Int) -> msg ) -> Sub msg
@@ -36,6 +40,8 @@ type alias Model =
   , performanceMin  : Int
   , performanceMax  : Int
 
+  , width           : Int
+  , height          : Int
   , camera          : Camera
 
   , isMulticore     : Bool
@@ -61,6 +67,10 @@ type Msg
   | SelectReflectionDepth Int
   | SelectMulticore Bool
   | SelectRunning Bool -- Play/Pause (Play=True)
+  | ChangeWidth Int
+  | ChangeHeight Int
+  | SubmitViewport
+  | Skip
 
 type alias Camera =
   { x    : Float
@@ -104,6 +114,8 @@ init =
   , performanceAvg  = 0
   , performanceMin  = 0
   , performanceMax  = 0
+  , width           = 512
+  , height          = 512
   , camera          = { x = 0, y = 0, z = 0, rotX = 0, rotY = 0 }
   , isMulticore     = False
   , isRunning       = True
@@ -131,6 +143,16 @@ update msg model =
       ( { model | isMulticore = b }, updateMulticore b )
     SelectRunning b ->
       ( { model | isRunning = b }, updateRunning b )
+    ChangeWidth w ->
+      ( { model | width = w }, Cmd.none )
+    ChangeHeight h ->
+      ( { model | height = h }, Cmd.none )
+    SubmitViewport ->
+      let w = min 1024 (max model.width 128)
+          h = min 1024 (max model.height 128)
+      in
+      ( { model | width = w, height = h }, updateViewport (w, h) )
+    Skip -> ( model, Cmd.none )
 
 
 view : Model -> Html Msg
@@ -145,7 +167,7 @@ view m =
             [ text "Cube and spheres" ]
         , buttonC (m.scene == SceneSimpleBall) (SelectScene SceneSimpleBall)
             [ class "choice", class "middle", style "width" "160pt", style "border-left" "none", style "border-top" "1px solid white", style "text-align" "left" ]
-            [ text "Simple Ball" ]
+            [ text "Spotlight Torus" ]
         , buttonC (m.scene == SceneAirHole) (SelectScene SceneAirHole)
             [ class "choice", class "middle", style "width" "160pt", style "border-left" "none", style "border-top" "1px solid white", style "text-align" "left" ]
             [ text "Air Hole" ]
@@ -209,6 +231,26 @@ view m =
     , div []
         [ span [] [ text "Camera" ]
         , table []
+            [ tr []
+                [ td [] [ text "width" ]
+                , td [] [ text "height" ]
+                ]
+            , tr []
+                [ td [] [ input [ type_ "number", Attr.min "0", Attr.max "1024", style "width" "50pt"
+                                , Attr.value <| fromInt m.width
+                                , onInput (ChangeWidth << withDefault m.width << toInt)
+                                , onBlur SubmitViewport, onEnterDown SubmitViewport
+                                ] [ ]
+                        ]
+                , td [] [ input [ type_ "number", Attr.min "0", Attr.max "1024", style "width" "50pt"
+                                , Attr.value <| fromInt m.height, onInput (ChangeHeight << withDefault m.width << toInt)
+                                , onBlur SubmitViewport, onEnterDown SubmitViewport
+                                ] [ ]
+                                ]
+                ]
+            ]
+        , hr [ style "margin-left" "30pt", style "margin-right" "30pt", style "border-color" "gray" ] []
+        , table []
             [ tr [] [ th [] [ text "location:" ], td [ style "width" "100pt" ] [ span [] [ text <| showXYZ m.camera.x m.camera.y m.camera.z ] ] ]
             , tr [] [ th [] [ text "rot x:" ], td [ style "text-align" "left", style "padding-left" "8pt" ] [ span [] [ text <| R.round 2 m.camera.rotX ] ] ]
             , tr [] [ th [] [ text "rot y:" ], td [ style "text-align" "left", style "padding-left" "8pt" ] [ span [] [ text <| R.round 2 m.camera.rotY ] ] ]
@@ -227,6 +269,18 @@ view m =
       else
         button [ onClick (SelectRunning True) ] [ text "Resume" ]
     ]
+
+onEnterDown : Msg -> Attribute Msg
+onEnterDown m =
+  let
+      enterMsg : Int -> Msg
+      enterMsg i =
+        case i of -- F1 to F4
+          13 -> m
+          _  -> Skip
+  in
+  on "keydown" (D.map enterMsg keyCode)
+
 
 
 showXYZ : Float -> Float -> Float -> String

@@ -7,8 +7,10 @@ declare function postMessage( msg : any ): void;
 
 // ### Global State (to the worker) ###
 let instance : any;
-let buffer : Uint8Array;
-let pixels : any[];
+let width    : number;
+let height   : number;
+let buffer  : Uint8Array;
+let pixels  : any[];
 
 const handlers = new MsgHandler( );
 handlers.register( 'init',          handleInit );
@@ -27,6 +29,8 @@ function handleInit( msg : MsgC2WInit ): void {
   let mod = msg.mod;
 
   buffer = new Uint8Array( msg.buffer );
+  width  = msg.width;
+  height = msg.height;
 
   let importObject =
     { env: {
@@ -65,15 +69,15 @@ function handleInit( msg : MsgC2WInit ): void {
 function handleCompute( msg : MsgC2WCompute ) {
   instance.exports.compute( );
   let resPtr = instance.exports.results( );
-  let mem8 = new Uint8Array( instance.exports.memory.buffer, resPtr, 512 * 512 * 4 );
+  let mem8 = new Uint8Array( instance.exports.memory.buffer, resPtr, width * height * 4 );
   for ( let i = 0; i < pixels.length; i++ ) {
     let x = pixels[ i ].x;
     let y = pixels[ i ].y;
 
-    buffer[ 4 * ( y * 512 + x ) + 0 ] = mem8[ 4 * ( y * 512 + x ) + 0 ];
-    buffer[ 4 * ( y * 512 + x ) + 1 ] = mem8[ 4 * ( y * 512 + x ) + 1 ];
-    buffer[ 4 * ( y * 512 + x ) + 2 ] = mem8[ 4 * ( y * 512 + x ) + 2 ];
-    buffer[ 4 * ( y * 512 + x ) + 3 ] = mem8[ 4 * ( y * 512 + x ) + 3 ];
+    buffer[ 4 * ( y * width + x ) + 0 ] = mem8[ 4 * ( y * width + x ) + 0 ];
+    buffer[ 4 * ( y * width + x ) + 1 ] = mem8[ 4 * ( y * width + x ) + 1 ];
+    buffer[ 4 * ( y * width + x ) + 2 ] = mem8[ 4 * ( y * width + x ) + 2 ];
+    buffer[ 4 * ( y * width + x ) + 3 ] = mem8[ 4 * ( y * width + x ) + 3 ];
   }
   postMessage( <MsgW2CComputeDone> { type: 'compute_done' } );
 }

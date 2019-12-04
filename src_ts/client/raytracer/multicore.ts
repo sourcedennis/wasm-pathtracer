@@ -165,9 +165,10 @@ export class MulticoreRaytracer implements Raytracer {
   }
 
   // See `Raytracer#updateViewport()`
-  public updateViewport( width : number, height : number ): void {
-    console.error( 'TODO: Multi-core update viewport' );
-  }
+  // public updateViewport( width : number, height : number ): void {
+  //   let msg : MsgC2WUpdateParams = { type: 'update_viewport', width, height };
+  //   this._postMsg( msg );
+  // }
 
   // See `Raytracer#storeMesh()`
   public storeMesh( id : number, mesh : Triangles ): void {

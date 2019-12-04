@@ -34,7 +34,7 @@ export interface Raytracer {
   updateCamera( camera : Camera ): void;
 
   // Updates the render viewport
-  updateViewport( width : number, height : number ): void;
+  // updateViewport( width : number, height : number ): void;
 
   // Meshes are obtained (e.g. read from a file) externally, and provided to
   // the raytracer through this method.

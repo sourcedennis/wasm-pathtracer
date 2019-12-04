@@ -4,7 +4,7 @@ use std::f32::consts::PI;
 // Local imports
 use crate::graphics::{ Color3, Material, Scene, Texture };
 use crate::graphics::lights::Light;
-use crate::graphics::primitives::{ AARect, Plane, Sphere, Triangle, Square };
+use crate::graphics::primitives::{ AARect, Plane, Sphere, Triangle, Square, Torus };
 use crate::graphics::ray::{ Tracable };
 use crate::graphics::Mesh;
 use crate::math::Vec3;
@@ -12,7 +12,7 @@ use crate::math;
 
 // A scene with refractive and semi-specular objects
 pub fn setup_scene( ) -> Scene {
-  let light = Light::point( Vec3::new( 0.0, 6.0, 2.0 ), Color3::new( 0.7, 0.7, 0.7 ), 50.0 );
+  let light = Light::point( Vec3::new( 0.0, 6.0, 2.0 ), Color3::new( 0.7, 0.7, 0.7 ), 60.0 );
 
   let mut shapes: Vec< Box< dyn Tracable > > = Vec::new( );
   // some random shapes
@@ -29,11 +29,12 @@ pub fn setup_scene( ) -> Scene {
 
 // A simple scene with one blue sphere
 pub fn setup_scene_ball( ) -> Scene {
-  let dir_light = Light::directional( Vec3::unit( -1.0, -1.0, 0.0 ), Color3::new( 0.1, 0.1, 0.1 ) );
-  let light = Light::spot( Vec3::new( 0.0, 4.0, 5.0 ), Vec3::new( 0.0, -1.0, 0.0 ), PI / 6.0, Color3::new( 0.7, 0.7, 0.7 ), 9.0 );
+  let dir_light = Light::directional( Vec3::unit( -1.0, -1.0, 0.0 ), Color3::new( 0.2, 0.2, 0.2 ) );
+  let light = Light::spot( Vec3::new( 0.0, 4.0, 5.0 ), Vec3::new( 0.0, -1.0, 0.0 ), PI / 6.0, Color3::new( 0.7, 0.7, 0.7 ), 11.0 );
 
   let mut shapes: Vec< Box< dyn Tracable > > = Vec::new( );
-  shapes.push( Box::new( Sphere::new( Vec3::new( 0.0, 0.0, 5.0 ), 1.0, Material::diffuse( Color3::new( 0.0, 0.0, 1.0 ) ) ) ) );
+  shapes.push( Box::new( Sphere::new( Vec3::new( 0.0, 0.0, 5.0 ), 0.3, Material::diffuse( Color3::new( 0.0, 0.0, 1.0 ) ) ) ) );
+  shapes.push( Box::new( Torus::new( Vec3::new( 0.0, 0.0, 5.0 ), 0.7, 0.3, Material::diffuse( Color3::new( 1.0, 0.0, 1.0 ) ) ) ) );
   shapes.push( Box::new( Plane::new( Vec3::new( 0.0, -1.0, 0.0 ), Vec3::new( 0.0, 1.0, 0.0 ), Material::reflect( Color3::new( 1.0, 1.0, 1.0 ), 0.1 ) ) ) );
 
   Scene::new( Color3::BLACK, vec![ light, dir_light ], shapes )

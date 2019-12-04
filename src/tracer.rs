@@ -4,8 +4,8 @@ use crate::graphics::ray::{Ray, Tracable};
 use crate::math::Vec3;
 use crate::math;
 
-// Individual instances of Material constructors
-// Such that work can be split up
+/// Individual instances of Material constructors
+/// Such that work can be split up
 #[derive(Copy, Clone)]
 pub struct MatReflect {
   pub color     : Color3,
@@ -18,7 +18,7 @@ impl MatReflect {
   }
 }
 
-// Another extracted Material constructor
+/// Another extracted Material constructor
 #[derive(Copy, Clone)]
 pub struct MatRefract {
   pub absorption       : Vec3,
@@ -40,8 +40,8 @@ struct Mesh {
   pub normals  : Vec< Vec3 >
 }
 
-// The scene camera.
-// It first rotates around the x-axis, then around the y-axis, then it translates
+/// The scene camera.
+/// It first rotates around the x-axis, then around the y-axis, then it translates
 pub struct Camera {
   pub location : Vec3,
   pub rot_x    : f32,
@@ -54,8 +54,8 @@ impl Camera {
   }
 }
 
-// Traces an original ray, and produces a gray-scale value for that ray
-// White values are close, black are far away
+/// Traces an original ray, and produces a gray-scale value for that ray
+/// White values are close, black are far away
 pub fn trace_original_depth( scene : &Scene, ray : &Ray ) -> Color3 {
   if let Some( h ) = scene.trace( ray ) {
     let v = 1.0 - math::clamp( ( h.distance - 5.0 ) / 12.0, 0.0, 1.0 );
@@ -65,12 +65,15 @@ pub fn trace_original_depth( scene : &Scene, ray : &Ray ) -> Color3 {
   }
 }
 
-// Traces an original ray, and produces a color for that ray
+/// Traces an original ray, and produces a color for that ray
 pub fn trace_original_color( scene : &Scene, ray : &Ray, max_rays : u32, refr_stack : &mut Stack< MatRefract > ) -> Color3 {
   let (_, c) = trace_color( scene, ray, max_rays, refr_stack );
   c
 }
 
+/// Traces a ray into the scene, and returns both its distance and color to the
+/// first hit. If no hit found it returns a distance of 0 and the color black.
+/// This should be of no effect anyway.
 fn trace_color( scene : &Scene, ray : &Ray, max_rays : u32, refr_stack : &mut Stack< MatRefract > ) -> (f32, Color3) {
   if let Some( h ) = scene.trace( ray ) {
     let hit_loc = ray.at( h.distance );
@@ -90,6 +93,7 @@ fn trace_color( scene : &Scene, ray : &Ray, max_rays : u32, refr_stack : &mut St
             light_color * color
           }
         },
+
         PointMaterial::Refract { absorption, refractive_index } => {
           let (obj_refractive_index, outside_refr_index, is_popped) =
             if h.is_entering {
@@ -101,11 +105,9 @@ fn trace_color( scene : &Scene, ray : &Ray, max_rays : u32, refr_stack : &mut St
               ( outside_mat.refractive_index, refractive_index, ip )
             };
 
-          let mut kr = fresnel( ray.dir, h.normal, outside_refr_index, obj_refractive_index );
-
-          let refr_color =
+          let (kr, refr_color) =
             if max_rays > 0 {
-              if let Some( refr_dir ) = refract( ray.dir, h.normal, outside_refr_index, obj_refractive_index ) {
+              if let Some( ( kr, refr_dir ) ) = refract_fresnel( ray.dir, h.normal, outside_refr_index, obj_refractive_index ) {
                 // No total internal reflection (refract(..) returns None if that were so). So kr < 1.0
                 // Cast refraction ray
                 let refr_ray = Ray::new( hit_loc + refr_dir * math::EPSILON, refr_dir );
@@ -122,24 +124,23 @@ fn trace_color( scene : &Scene, ray : &Ray, max_rays : u32, refr_stack : &mut St
                   refr_stack.push( MatRefract::new( absorption, obj_refractive_index ) );
                   let (d,c) = trace_color( scene, &refr_ray, max_rays - 1, refr_stack );
                   refr_stack.pop_until1( );
-                  c * ( -absorption * d ).exp( )
+                  ( kr, c * ( -absorption * d ).exp( ) )
                 } else { // leaving the object
                   // Note that in this case the material was popped before, and is pushed after
                   // Which is done externally
                   let (d,c) = trace_color( scene, &refr_ray, max_rays - 1, refr_stack );
 
                   let a = refr_stack.top( ).unwrap( ).absorption;
-                  c * ( -a * d ).exp( )
+                  ( kr, c * ( -a * d ).exp( ) )
                 }
-              } else { // No refraction. Total internal reflection
-                kr = 1.0;
-                Color3::BLACK
+              } else { // Total internal reflection
+                ( 1.0, Color3::BLACK )
               }
             } else {
               // This means very little, but happens when the rays don't want to
               // go any further. Instead of black, choose a sensible color
               let habs = absorption.x.max( absorption.y ).max( absorption.z );
-              Color3::new( 1.0 - absorption.x / habs, 1.0 - absorption.y / habs, 1.0 - absorption.z / habs )
+              ( 1.0, Color3::new( 1.0 - absorption.x / habs, 1.0 - absorption.y / habs, 1.0 - absorption.z / habs ) )
             };
 
           if is_popped {
@@ -170,11 +171,11 @@ fn trace_color( scene : &Scene, ray : &Ray, max_rays : u32, refr_stack : &mut St
   }
 }
 
-// The sum of the contribution of all lights in the scene toward the `hit_loc`
-// This takes into account:
-// * Occlusion (shadow-rays; occluded sources do not contribute)
-// * Distance
-// * Angle of hit
+/// The sum of the contribution of all lights in the scene toward the `hit_loc`
+/// This takes into account:
+/// * Occlusion (shadow-rays; occluded sources do not contribute)
+/// * Distance
+/// * Angle of hit
 fn lights_color( scene : &Scene, hit_loc : &Vec3, hit_normal : &Vec3 ) -> Vec3 {
   let mut light_color = Vec3::ZERO;
   for l_id in 0..scene.lights.len( ) {
@@ -186,41 +187,39 @@ fn lights_color( scene : &Scene, hit_loc : &Vec3, hit_normal : &Vec3 ) -> Vec3 {
   light_color
 }
 
-// Borrowed from:
-// https://www.scratchapixel.com/lessons/3d-basic-rendering/introduction-to-shading/reflection-refraction-fresnel
-fn refract( i : Vec3, mut n : Vec3, prev_ior : f32, ior : f32 ) -> Option< Vec3 > {
+/// Returns the amount (in range (0,1)) of reflection, and the angle of refraction
+/// If None is returned, total internal reflection applies (and no refraction at all)
+/// This applies both fresnel and Snell's law for refraction
+fn refract_fresnel( i : Vec3, mut n : Vec3, prev_ior : f32, ior : f32 ) -> Option< ( f32, Vec3 ) > {
+  // Borrowed and adjusted from:
+  // https://www.scratchapixel.com/lessons/3d-basic-rendering/introduction-to-shading/reflection-refraction-fresnel
+
   let mut cosi = math::clamp( i.dot( n ), -1.0, 1.0 );
   let mut etai = prev_ior;
   let mut etat = ior;
-  if cosi < 0.0 { cosi = -cosi; } else { std::mem::swap( &mut etai, &mut etat ); n = -n; }
-  let eta = etai / etat;
-  let k = 1.0 - eta * eta * (1.0 - cosi * cosi);
-  if k < 0.0 {
-    None
-  } else {
-    Some( ( eta * i + (eta * cosi - k.sqrt()) * n ).normalize( ) )
-  }
-}
-
-// Borrowed from:
-// https://www.scratchapixel.com/lessons/3d-basic-rendering/introduction-to-shading/reflection-refraction-fresnel
-fn fresnel( i : Vec3, n : Vec3, prev_ior : f32, ior : f32 ) -> f32 {
-  let cosi = math::clamp( i.dot( n ), -1.0, 1.0 );
-  let mut etai = prev_ior;
-  let mut etat = ior;
-  if cosi > 0.0 {
+  if cosi < 0.0 {
+    cosi = -cosi;
+  } else { // Inside the object
     std::mem::swap( &mut etai, &mut etat );
+    n = -n;
   }
-  // Compute sini using Snell's law
-  let sint = etai / etat * 0.0_f32.max( 1.0 - cosi * cosi ).sqrt( );
+  let eta = etai / etat;
+  // Compute sint using Snell's law
+  let sint = eta * 0.0_f32.max( 1.0 - cosi * cosi ).sqrt( );
   // Total internal reflection
   if sint >= 1.0 {
-    1.0
+    None // So, reflection = 1.0
   } else {
+    // Because sint < 1.0, k > 0.0
+    let k = 1.0 - eta * eta * (1.0 - cosi * cosi);
+    // assert!( k > 0.0 );
+
     let cost = 0.0_f32.max( 1.0 - sint * sint ).sqrt( );
-    let cosi = cosi.abs( ); //fabsf(cosi);
     let rs = ((etat * cosi) - (etai * cost)) / ((etat * cosi) + (etai * cost));
     let rp = ((etai * cosi) - (etat * cost)) / ((etai * cosi) + (etat * cost));
-    (rs * rs + rp * rp) / 2.0
+    let frac_refl = (rs * rs + rp * rp) / 2.0;
+    let refr_dir  = ( eta * i + (eta * cosi - k.sqrt()) * n ).normalize( );
+
+    Some( ( frac_refl, refr_dir ) )
   }
 }

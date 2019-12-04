@@ -153,6 +153,20 @@ class Global {
     this._raytracer.updateCamera( this._cameraController.get( ) );
   }
 
+  public updateViewport( width : number, height : number ) {
+    this._config.width = width;
+    this._config.height = height;
+    this._target       = new RenderTarget( this._config.width, this._config.height );
+    this._canvasElem.updateTarget( this._target );
+    
+    // Restart the raytracer
+    this._raytracer.destroy( );
+    if ( this._config.isRunning ) {
+      this._fpsTracker.clear( );
+    }
+    this._raytracer = this._setupRaytracer( );
+  }
+
   // Meshes can only be loaded by JavaScript, yet they need to be passed
   //   to the WASM module. This stores it in the global environment
   //   any current and future renders will have these meshes available
@@ -252,8 +266,8 @@ class Global {
 function sceneCamera( sceneId : number ): Camera {
   if ( sceneId === 0 ) { // cubes and spheres
     return new Camera( new Vec3( -5.1, 4.6, 1.8 ), 0.54, 0.68 );
-  } else if ( sceneId === 1 ) { // simple ball
-    return new Camera( new Vec3( 0.0, 0.0, -1.0 ), 0, 0 );
+  } else if ( sceneId === 1 ) { // torus
+    return new Camera( new Vec3( 0.00, 1.53, 0.19 ), 0.38, 0 );
   } else if ( sceneId === 2 ) { // air hole
     return new Camera( new Vec3( -3.7, 3.5, -0.35 ), 0.47, 0.54 );
   } else if ( sceneId === 3 ) { // .obj mesh
@@ -281,6 +295,7 @@ document.addEventListener( 'DOMContentLoaded', ev => {
       app.ports.updateRunning.subscribe( r => env.updateRunning( r ) );
       app.ports.updateMulticore.subscribe( r => env.updateMulticore( r ) );
       app.ports.updateScene.subscribe( sid => env.updateScene( sid ) );
+      app.ports.updateViewport.subscribe( vp => env.updateViewport( vp[ 0 ], vp[ 1 ] ) );
 
       env.onRenderDone( ).subscribe( res => app.ports.updatePerformance.send( res ) );
       env.onCameraUpdate( ).subscribe( c =>

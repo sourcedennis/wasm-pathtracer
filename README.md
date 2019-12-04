@@ -55,3 +55,6 @@ TODO
 
 ## 4. Credit
 * [wasm-bindgen hello world example](https://github.com/rustwasm/wasm-bindgen/tree/master/examples/hello_world) - Setup for Rust to WASM with Webpack
+* [Scratchapixel](https://www.scratchapixel.com/) - Nice explanation and code samples on raytracing
+* [Torus ray intersection](http://cosinekitty.com/raytrace/chapter13_torus.html)
+* [My old raytracer](https://github.com/dennis-school/raytrace_city/) - This I wrote during my BSc ([RuG - Computer Graphics](http://www.cs.rug.nl/svcg/Teaching/ComputerGraphics)), from which I reused some primitive intersection code (some of which I probably took from the course slides or provided code templates).

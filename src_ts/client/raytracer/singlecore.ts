@@ -101,9 +101,9 @@ export class SinglecoreRaytracer implements Raytracer {
   }
 
   // See `Raytracer#updateViewport()`
-  public updateViewport( width : number, height : number ) {
-    console.error( 'TODO: Update viewport' ); 
-  }
+  // public updateViewport( width : number, height : number ) {
+  //   console.error( 'TODO: Update viewport' ); 
+  // }
 
   // See `Raytracer#storeMesh()`
   public storeMesh( id : number, mesh : Triangles ): void {
