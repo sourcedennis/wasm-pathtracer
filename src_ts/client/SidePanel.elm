@@ -5,7 +5,8 @@ import Html            exposing
   (Html, Attribute, h2, hr, br, div, text, span, button, table, tr, td, th)
 import Html.Attributes exposing (class, id, style)
 import Html.Events     exposing (onClick)
-import String          exposing (fromInt)
+import String          exposing (fromInt, fromFloat)
+import Round           as R
 
 -- This is the GUI sidepanel with which runtime parameters of the raytracer
 -- can be set. The TypeScript instance listens to the ports provided by this
@@ -13,12 +14,17 @@ import String          exposing (fromInt)
 
 -- The ports. Note that only primitive types can be passed across
 -- So, some "magic number" (for RenderType and Scene) are passed to TypeScript
+-- Outgoing ports
 port updateScene           : Int -> Cmd msg
 port updateRenderType      : Int -> Cmd msg
 port updateReflectionDepth : Int -> Cmd msg
 port updateRunning         : Bool -> Cmd msg
 port updateMulticore       : Bool -> Cmd msg
+-- Incoming ports
+-- render times: (avg, min, max)
 port updatePerformance     : ( (Int, Int, Int) -> msg ) -> Sub msg
+-- camera properties: (x, y, z, rotX, rotY)
+port updateCamera          : ( Camera -> msg ) -> Sub msg
 
 -- The state of the side panel
 type alias Model =
@@ -29,6 +35,8 @@ type alias Model =
   , performanceAvg  : Int
   , performanceMin  : Int
   , performanceMax  : Int
+
+  , camera          : Camera
 
   , isMulticore     : Bool
 
@@ -47,11 +55,20 @@ type RenderType = RenderColor | RenderDepth
 
 type Msg
   = UpdatePerformance Int Int Int -- render times: avg min max
+  | UpdateCamera Camera
   | SelectScene Scene
   | SelectType RenderType
   | SelectReflectionDepth Int
   | SelectMulticore Bool
   | SelectRunning Bool -- Play/Pause (Play=True)
+
+type alias Camera =
+  { x    : Float
+  , y    : Float
+  , z    : Float
+  , rotX : Float
+  , rotY : Float
+  }
 
 main : Program () Model Msg
 main =
@@ -74,7 +91,10 @@ sceneId s =
     
 subscriptions : Model -> Sub Msg
 subscriptions _ =
-    updatePerformance <| \(x,y,z) -> UpdatePerformance x y z
+  Sub.batch
+    [ updatePerformance <| \(x,y,z) -> UpdatePerformance x y z
+    , updateCamera <| \x -> UpdateCamera x
+    ]
 
 init : Model
 init =
@@ -84,6 +104,7 @@ init =
   , performanceAvg  = 0
   , performanceMin  = 0
   , performanceMax  = 0
+  , camera          = { x = 0, y = 0, z = 0, rotX = 0, rotY = 0 }
   , isMulticore     = False
   , isRunning       = True
   }
@@ -93,6 +114,8 @@ update msg model =
   case msg of
     UpdatePerformance avg low high ->
       ( { model | performanceAvg = avg, performanceMin = low, performanceMax = high }, Cmd.none )
+    UpdateCamera c ->
+      ( { model | camera = c }, Cmd.none )
     SelectScene s ->
       ( { model | scene = s }, updateScene (sceneId s) )
     SelectType t ->
@@ -184,6 +207,14 @@ view m =
             [ text "Multi (8)" ]
         ]
     , div []
+        [ span [] [ text "Camera" ]
+        , table []
+            [ tr [] [ th [] [ text "location:" ], td [ style "width" "100pt" ] [ span [] [ text <| showXYZ m.camera.x m.camera.y m.camera.z ] ] ]
+            , tr [] [ th [] [ text "rot x:" ], td [ style "text-align" "left", style "padding-left" "8pt" ] [ span [] [ text <| R.round 2 m.camera.rotX ] ] ]
+            , tr [] [ th [] [ text "rot y:" ], td [ style "text-align" "left", style "padding-left" "8pt" ] [ span [] [ text <| R.round 2 m.camera.rotY ] ] ]
+            ]
+        ]
+    , div []
         [ span [] [ text "Performance (in last second)" ]
         , table []
             [ tr [] [ th [] [ text "Average:" ], td [] [ span [] [ text <| fromInt m.performanceAvg ++ " ms" ] ] ]
@@ -197,6 +228,9 @@ view m =
         button [ onClick (SelectRunning True) ] [ text "Resume" ]
     ]
 
+
+showXYZ : Float -> Float -> Float -> String
+showXYZ x y z = R.round 2 x ++ "; " ++ R.round 2 y ++ "; " ++ R.round 2 z
 
 -- A checkbox button. It's checked if the provided boolean is true
 -- Only unchecked button have the event assigned

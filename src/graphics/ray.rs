@@ -39,7 +39,6 @@ impl Ray {
 pub struct Hit {
   /// The distance from the ray origin to the surface intersection
   pub distance    : f32,
-  // TODO: Make its computation delayed
   pub normal      : Vec3,
   /// The material of the surface at the intersection point
   pub mat         : PointMaterial,
@@ -58,6 +57,9 @@ impl Hit {
 
 /// A trait for physical objects, with which a ray of light can be intersected
 pub trait Tracable {
+  /// Traces a ray with limited properties evaluated at the hit.
+  /// That is, no normal or materials are included. Only its distance from the
+  ///   ray origin.
   fn trace_simple( &self, ray : &Ray ) -> Option< f32 > {
     if let Some( h ) = self.trace( ray ) {
       Some( h.distance )
@@ -66,5 +68,7 @@ pub trait Tracable {
     }
   }
 
+  /// Traces a ray. At the hit point the normal and material are evaluated and
+  ///   included in the returned hit.
   fn trace( &self, ray : &Ray ) -> Option< Hit >;
 }

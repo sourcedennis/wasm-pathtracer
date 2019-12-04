@@ -2,7 +2,7 @@ use crate::math::{Vec2, Vec3};
 use crate::graphics::Material;
 use crate::graphics::ray::{Ray, Tracable, Hit};
 
-// A torus that lies flat
+// A torus that lies flat; that is, its gap lies in the x/z-plane
 pub struct Torus {
   location : Vec3,
   big_r    : f32,

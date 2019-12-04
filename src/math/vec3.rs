@@ -1,5 +1,6 @@
 use std::ops;
 
+/// A vector in 3-dimensional space
 #[derive(Copy,Clone)]
 pub struct Vec3 {
   pub x : f32,
@@ -8,22 +9,32 @@ pub struct Vec3 {
 }
 
 impl Vec3 {
+  /// The vector that lies at the origin, which has 0 length; (0,0,0)
   pub const ZERO: Vec3 = Vec3 { x: 0.0, y: 0.0, z: 0.0 };
 
+  /// Constructs a new vector with the provided components
   pub fn new( x : f32, y : f32, z : f32 ) -> Vec3 {
     Vec3 { x, y, z }
   }
 
+  /// Constructs a new unit vector in the provided direction
+  pub fn unit( x : f32, y : f32, z : f32 ) -> Vec3 {
+    Vec3::new( x, y, z ).normalize( )
+  }
+
+  /// Scales the vector such that its length becomes 1
   pub fn normalize( self ) -> Vec3 {
     let lenSq = self.dot( self );
     let len = lenSq.sqrt( );
     Vec3::new( self.x / len, self.y / len, self.z / len )
   }
 
+  /// Computes the dot product with the provided Vec3
   pub fn dot( self, rhs : Vec3 ) -> f32 {
     self.x * rhs.x + self.y * rhs.y + self.z * rhs.z
   }
 
+  /// Computes the crosss product with the provided Vec3
   pub fn cross( self, t : Vec3 ) -> Vec3 {
     Vec3::new(
       self.y * t.z - self.z * t.y,
@@ -31,18 +42,23 @@ impl Vec3 {
       self.x * t.y - self.y * t.x )
   }
 
+  /// Returns the length
   pub fn len( self ) -> f32 {
     self.len_sq( ).sqrt( )
   }
 
+  /// Returns the *square* length
   pub fn len_sq( self ) -> f32 {
     self.dot( self )
   }
 
+  /// Reflects the vector along the provided normal
   pub fn reflect( self, normal : Vec3 ) -> Vec3 {
     2.0 * self.dot( normal ) * normal - self
   }
 
+  /// Applies every component as the power of `e`
+  /// So, it returns: (e^x, e^y, e^z)
   pub fn exp( self ) -> Vec3 {
     Vec3::new( self.x.exp( ), self.y.exp( ), self.z.exp( ) )
   }
@@ -119,5 +135,13 @@ impl ops::Div< f32 > for Vec3 {
 
   fn div( self, divisor: f32 ) -> Vec3 {
     Vec3::new( self.x / divisor, self.y / divisor, self.z / divisor )
+  }
+}
+
+impl ops::AddAssign< Vec3 > for Vec3 {
+  fn add_assign( &mut self, v : Vec3 ) {
+    self.x += v.x;
+    self.y += v.y;
+    self.z += v.z;
   }
 }

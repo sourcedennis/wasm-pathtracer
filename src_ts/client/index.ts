@@ -172,6 +172,18 @@ class Global {
     return this._onRenderDone.observable;
   }
 
+  // Gets notified when the camera updates
+  public onCameraUpdate( ): Observable< Camera > {
+    return this._cameraController.onUpdate( );
+  }
+
+  // Triggers the camera update with the current camera
+  // Do this when a new camera listener is set, as otherwise it won't know the
+  //   current state of the camera
+  public triggerCameraUpdate( ): void {
+    this._cameraController.set( this._cameraController.get( ) );
+  }
+
   // Constructs a new raytracer with the current configuration
   private _setupRaytracer( ): Raytracer {
     const c = this._config;
@@ -271,6 +283,10 @@ document.addEventListener( 'DOMContentLoaded', ev => {
       app.ports.updateScene.subscribe( sid => env.updateScene( sid ) );
 
       env.onRenderDone( ).subscribe( res => app.ports.updatePerformance.send( res ) );
+      env.onCameraUpdate( ).subscribe( c =>
+        app.ports.updateCamera.send( { x: c.location.x, y: c.location.y, z: c.location.z, rotX: c.rotX, rotY: c.rotY } )
+      );
+      env.triggerCameraUpdate( );
 
       fetch( 'torus.obj' ).then( f => f.text( ) ).then( s => {
         let triangles = parseObj( s );

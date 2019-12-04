@@ -80,11 +80,10 @@ export class CameraController {
       }
 
       if ( translation != null ) {
-        translation = translation.rotY( this.rotY );
+        translation = translation.rotX( this.rotX ).rotY( this.rotY );
         let c = this._camera;
         this._camera = new Camera( c.location.add( translation ), c.rotX, c.rotY );
         this._onUpdate.next( this._camera );
-        // console.log( c );
       }
     } );
   }

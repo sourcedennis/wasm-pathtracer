@@ -1,6 +1,6 @@
 use crate::graphics::{Color3};
 use crate::graphics::ray::{Ray, Hit, Tracable};
-use crate::graphics::lights::PointLight;
+use crate::graphics::lights::Light;
 use crate::math::{Vec3, EPSILON};
 
 // A Scene consists of shapes and lights
@@ -9,40 +9,79 @@ use crate::math::{Vec3, EPSILON};
 // (For specific scenes, look at the `/scenes.rs` file)
 pub struct Scene {
   pub background : Color3,
-  pub lights     : Vec< PointLight >,
+  pub lights     : Vec< Light >,
   pub shapes     : Vec< Box< dyn Tracable > >
 }
 
-// A "hit" for a pointlight source
+// A "hit" for a light source
 // If such a hit exists, there is a non-occluded ray from a surface point to
 //   the light source. (This is used for casting shadow rays)
 pub struct LightHit {
   pub dir      : Vec3,
-  pub distance : f32,
-  pub color    : Color3,
+  // The color of the distance-attenuated light source
+  pub color    : Vec3,
 }
 
 impl Scene {
   // Constructs a new scene with the specified lights and shapes
   pub fn new( background : Color3
-            , lights : Vec< PointLight >
-            , shapes : Vec< Box< dyn Tracable > > ) -> Scene {
+            , lights     : Vec< Light >
+            , shapes     : Vec< Box< dyn Tracable > >
+            ) -> Scene {
     Scene { background, lights, shapes }
   }
 
   // Casts a shadow ray from the `hit_loc` to all lights in the scene
   // All non-occluded lights are returned by this function
   pub fn shadow_ray( &self, hit_loc : &Vec3, light_id : usize ) -> Option< LightHit > {
-    let l = &self.lights[ light_id ];
-    let mut to_light = l.location - *hit_loc;
-    let distance = to_light.len( );
-    to_light = to_light / distance;
+    match &self.lights[ light_id ] {
+      Light::Point( ref l ) => {
+        let mut to_light : Vec3 = l.location - *hit_loc;
+        let distance_sq = to_light.len_sq( );
+        to_light = to_light / distance_sq.sqrt( );
 
-    let shadow_ray = Ray::new( *hit_loc + EPSILON * to_light, to_light );
-    if !is_hit_within_sq( self.trace_simple( &shadow_ray ), ( l.location - *hit_loc ).len_sq( ) ) {
-      Some( LightHit { dir: to_light, distance, color: l.color } )
-    } else {
-      None
+        let shadow_ray = Ray::new( *hit_loc + EPSILON * to_light, to_light );
+        if !is_hit_within_sq( self.trace_simple( &shadow_ray ), distance_sq ) {
+          let attenuation = 1.0 / distance_sq;
+          Some( LightHit { dir: attenuation * to_light, color: l.color } )
+        } else {
+          None
+        }
+      },
+      Light::Directional( ref l ) => {
+        let to_light   = -l.direction;
+        let shadow_ray = Ray::new( *hit_loc + EPSILON * to_light, to_light );
+        if let Some( _h ) = self.trace_simple( &shadow_ray ) {
+          // A shadow occludes the lightsource
+          None
+        } else {
+          // Note that no attenuation applies here, as the lightsource is at an
+          // infinite distance anyway
+          Some( LightHit { dir: to_light, color: l.color.to_vec3( ) } )
+        }
+      },
+      Light::Spot( ref l ) => {
+        let mut to_light : Vec3 = ( l.location - *hit_loc );
+        let distance_sq = to_light.len_sq( );
+        to_light = to_light / distance_sq.sqrt( );
+        let from_light : Vec3 = -to_light;
+
+        let angle_diff = from_light.dot( l.direction ).acos( );
+
+        if angle_diff < l.angle {
+          let shadow_ray = Ray::new( *hit_loc + EPSILON * to_light, to_light );
+          if !is_hit_within_sq( self.trace_simple( &shadow_ray ), distance_sq ) {
+            let attenuation = 1.0 / distance_sq;
+            Some( LightHit { dir: attenuation * to_light, color: l.color } )
+          } else {
+            // It's occluded
+            None
+          }
+        } else {
+          // Outside the spot area
+          None
+        }
+      }
     }
   }
 }

@@ -1,8 +1,9 @@
 // External imports
 use std::collections::HashMap;
+use std::f32::consts::PI;
 // Local imports
 use crate::graphics::{ Color3, Material, Scene, Texture };
-use crate::graphics::lights::PointLight;
+use crate::graphics::lights::Light;
 use crate::graphics::primitives::{ AARect, Plane, Sphere, Triangle, Square };
 use crate::graphics::ray::{ Tracable };
 use crate::graphics::Mesh;
@@ -11,7 +12,7 @@ use crate::math;
 
 // A scene with refractive and semi-specular objects
 pub fn setup_scene( ) -> Scene {
-  let light = PointLight::new( Vec3::new( 0.0, 6.0, 2.0 ), Color3::new( 0.7, 0.7, 0.7 ) );
+  let light = Light::point( Vec3::new( 0.0, 6.0, 2.0 ), Color3::new( 0.7, 0.7, 0.7 ), 50.0 );
 
   let mut shapes: Vec< Box< dyn Tracable > > = Vec::new( );
   // some random shapes
@@ -28,17 +29,19 @@ pub fn setup_scene( ) -> Scene {
 
 // A simple scene with one blue sphere
 pub fn setup_scene_ball( ) -> Scene {
-  let light = PointLight::new( Vec3::new( -0.5, 2.0, 1.0 ), Color3::new( 0.7, 0.7, 0.7 ) );
+  let dir_light = Light::directional( Vec3::unit( -1.0, -1.0, 0.0 ), Color3::new( 0.1, 0.1, 0.1 ) );
+  let light = Light::spot( Vec3::new( 0.0, 4.0, 5.0 ), Vec3::new( 0.0, -1.0, 0.0 ), PI / 6.0, Color3::new( 0.7, 0.7, 0.7 ), 9.0 );
 
   let mut shapes: Vec< Box< dyn Tracable > > = Vec::new( );
   shapes.push( Box::new( Sphere::new( Vec3::new( 0.0, 0.0, 5.0 ), 1.0, Material::diffuse( Color3::new( 0.0, 0.0, 1.0 ) ) ) ) );
+  shapes.push( Box::new( Plane::new( Vec3::new( 0.0, -1.0, 0.0 ), Vec3::new( 0.0, 1.0, 0.0 ), Material::reflect( Color3::new( 1.0, 1.0, 1.0 ), 0.1 ) ) ) );
 
-  Scene::new( Color3::BLACK, vec![ light ], shapes )
+  Scene::new( Color3::BLACK, vec![ light, dir_light ], shapes )
 }
 
 // A scene with a glass cube that has a non-glass (filled with air) sphere inside
 pub fn setup_scene_cubesphere( ) -> Scene {
-  let light = PointLight::new( Vec3::new( 0.0, 6.0, 2.0 ), Color3::new( 0.7, 0.7, 0.7 ) );
+  let light = Light::point( Vec3::new( 0.0, 6.0, 2.0 ), Color3::new( 0.7, 0.7, 0.7 ), 50.0 );
 
   let mut shapes: Vec< Box< dyn Tracable > > = Vec::new( );
 
@@ -59,8 +62,9 @@ pub fn setup_scene_cubesphere( ) -> Scene {
   Scene::new( Color3::BLACK, vec![ light ], shapes )
 }
 
+// A scene with the .obj file loaded into it
 pub fn setup_scene_obj( meshes : &HashMap< u32, Mesh > ) -> Scene {
-  let light = PointLight::new( Vec3::new( 0.0, 6.0, 2.0 ), Color3::new( 0.7, 0.7, 0.7 ) );
+  let light = Light::point( Vec3::new( 0.0, 6.0, 2.0 ), Color3::new( 0.7, 0.7, 0.7 ), 50.0 );
   
   let mut shapes: Vec< Box< dyn Tracable > > = Vec::new( );
 
@@ -80,13 +84,14 @@ pub fn setup_scene_obj( meshes : &HashMap< u32, Mesh > ) -> Scene {
   Scene::new( Color3::BLACK, vec![ light ], shapes )
 }
 
+// Whitted Turner's scene
 pub fn setup_scene_texture( textures : &HashMap< u32, Texture > ) -> Scene {
-  let light = PointLight::new( Vec3::new( 0.0, 6.0, -3.0 ), Color3::new( 0.7, 0.7, 0.7 ) );
+  let light = Light::point( Vec3::new( 0.0, 6.0, -3.0 ), Color3::new( 0.7, 0.7, 0.7 ), 50.0 );
   
   let mut shapes: Vec< Box< dyn Tracable > > = Vec::new( );
 
   if let Some( t ) = textures.get( &0 ) {
-    shapes.push( Box::new( Square::new( Vec3::new( 0.0, -1.5, 4.0 ), 8.0, Material::diffuse_texture( t.clone( ) ) ) ) );
+    shapes.push( Box::new( Square::new( Vec3::new( 0.0, -1.0, 4.0 ), 8.0, Material::diffuse_texture( t.clone( ) ) ) ) );
   }
   shapes.push( Box::new( Sphere::new( Vec3::new( -1.3, 1.0, -0.2 ), 0.7, Material::refract( Vec3::new( 0.5, 1.0, 0.5 ), 1.02 ) ) ) );
   shapes.push( Box::new( Sphere::new( Vec3::new( -0.4, 0.0, 1.0 ), 0.6, Material::reflect( Color3::new( 1.0, 1.0, 1.0 ), 0.3 ) ) ) );

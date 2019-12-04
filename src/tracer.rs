@@ -85,9 +85,9 @@ fn trace_color( scene : &Scene, ray : &Ray, max_rays : u32, refr_stack : &mut St
             let refl_ray          = Ray::new( hit_loc + math::EPSILON * refl_dir, refl_dir );
             let (_, refl_diffuse) = trace_color( scene, &refl_ray, max_rays - 1, refr_stack );
             let diffuse_color     = reflection * refl_diffuse + ( 1.0 - reflection ) * color;
-            light_color.to_vec3( ) * diffuse_color
+            light_color * diffuse_color
           } else { // If it's at the cap, just apply direct illumination
-            light_color.to_vec3( ) * color
+            light_color * color
           }
         },
         PointMaterial::Refract { absorption, refractive_index } => {
@@ -173,12 +173,13 @@ fn trace_color( scene : &Scene, ray : &Ray, max_rays : u32, refr_stack : &mut St
 // The sum of the contribution of all lights in the scene toward the `hit_loc`
 // This takes into account:
 // * Occlusion (shadow-rays; occluded sources do not contribute)
-// * Distance TODO
+// * Distance
 // * Angle of hit
-fn lights_color( scene : &Scene, hit_loc : &Vec3, hit_normal : &Vec3 ) -> Color3 {
-  let mut light_color = Color3::BLACK;
+fn lights_color( scene : &Scene, hit_loc : &Vec3, hit_normal : &Vec3 ) -> Vec3 {
+  let mut light_color = Vec3::ZERO;
   for l_id in 0..scene.lights.len( ) {
     if let Some( light_hit ) = scene.shadow_ray( &hit_loc, l_id ) {
+      // Note that `scene.shadow_ray(..)` already performs distance attenuation
       light_color += light_hit.color * 0.0_f32.max( hit_normal.dot( light_hit.dir ) );
     }
   }
