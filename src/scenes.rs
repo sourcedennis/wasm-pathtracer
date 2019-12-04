@@ -85,7 +85,7 @@ pub fn setup_scene_obj( meshes : &HashMap< u32, Mesh > ) -> Scene {
   Scene::new( Color3::BLACK, vec![ light ], shapes )
 }
 
-// Whitted Turner's scene
+// Turner Whitted's scene
 pub fn setup_scene_texture( textures : &HashMap< u32, Texture > ) -> Scene {
   let light = Light::point( Vec3::new( 0.0, 6.0, -3.0 ), Color3::new( 0.7, 0.7, 0.7 ), 50.0 );
   

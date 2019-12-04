@@ -2,7 +2,7 @@
 name = "raytracer"
 version = "0.1.0"
 authors = ["Dennis Sprokholt"]
-edition = "2019"
+edition = "2018"
 
 [lib]
 crate-type = ["cdylib"]

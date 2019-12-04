@@ -212,34 +212,31 @@ fn specular_lights_color( scene : &Scene, hit_loc : &Vec3, i : &Vec3, normal : &
 /// If None is returned, total internal reflection applies (and no refraction at all)
 /// This applies both fresnel and Snell's law for refraction
 fn refract_fresnel( i : Vec3, mut n : Vec3, prev_ior : f32, ior : f32 ) -> Option< ( f32, Vec3 ) > {
-  // Borrowed and adjusted from:
-  // https://www.scratchapixel.com/lessons/3d-basic-rendering/introduction-to-shading/reflection-refraction-fresnel
+  let cosi    = math::clamp( -i.dot( n ), -1.0, 1.0 );
+  let cosi_sq = cosi * cosi;
+  // "Real squares cannot be less than 0" -Dennis
+  let sini_sq = 0.0_f32.max( 1.0 - cosi_sq );
+  let sini    = sini_sq.sqrt( );
 
-  let mut cosi = math::clamp( i.dot( n ), -1.0, 1.0 );
-  let mut etai = prev_ior;
-  let mut etat = ior;
-  if cosi < 0.0 {
-    cosi = -cosi;
-  } else { // Inside the object
-    std::mem::swap( &mut etai, &mut etat );
-    n = -n;
-  }
-  let eta = etai / etat;
-  // Compute sint using Snell's law
-  let sint = eta * 0.0_f32.max( 1.0 - cosi * cosi ).sqrt( );
-  // Total internal reflection
-  if sint >= 1.0 {
+  let snell   = prev_ior / ior;
+
+  let sint = snell * sini;
+
+  if sint >= 1.0 { // Total internal reflection
     None // So, reflection = 1.0
   } else {
     // Because sint < 1.0, k > 0.0
-    let k = 1.0 - eta * eta * (1.0 - cosi * cosi);
-    // assert!( k > 0.0 );
+    let k = 1.0 - snell * snell * sini_sq;
 
     let cost = 0.0_f32.max( 1.0 - sint * sint ).sqrt( );
-    let rs = ((etat * cosi) - (etai * cost)) / ((etat * cosi) + (etai * cost));
-    let rp = ((etai * cosi) - (etat * cost)) / ((etai * cosi) + (etat * cost));
-    let frac_refl = (rs * rs + rp * rp) / 2.0;
-    let refr_dir  = ( eta * i + (eta * cosi - k.sqrt()) * n ).normalize( );
+
+    // s-polarized light
+    let spol = (prev_ior * cosi - ior * cost) / (prev_ior * cosi + ior * cost);
+    // p-polarized light
+    let ppol = (prev_ior * cost - ior * cosi) / (prev_ior * cost + ior * cosi);
+
+    let frac_refl = 0.5 * (spol * spol + ppol * ppol);
+    let refr_dir  = ( snell * i + (snell * cosi - k.sqrt()) * n ).normalize( );
 
     Some( ( frac_refl, refr_dir ) )
   }
