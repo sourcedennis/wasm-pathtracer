@@ -86,3 +86,6 @@ Some important files are described below.
 * [Scratchapixel](https://www.scratchapixel.com/) - Nice explanation and code samples on raytracing
 * [Torus ray intersection](http://cosinekitty.com/raytrace/chapter13_torus.html)
 * [My old raytracer](https://github.com/dennis-school/raytrace_city/) - This I wrote during my BSc ([RuG - Computer Graphics](http://www.cs.rug.nl/svcg/Teaching/ComputerGraphics)), from which I reused some primitive intersection code (some of which I probably took from the course slides or provided code templates).
+
+## 5. License
+The included [fonts](https://fonts.google.com/specimen/Open+Sans) (which I absolutely needed) were published under the [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0).
