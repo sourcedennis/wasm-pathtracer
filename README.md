@@ -51,7 +51,35 @@ The GUI buttons on the righthand-side are rather self-explanatory. Further contr
 * Arrow keys + PageUp + PageDown to *rotate* the camera
 
 ## 3. Code Navigation
-TODO
+The main architecture is divided between the TypeScript part and the Rust part. Rust implements the actual tracing of rays into (hardcoded) scenes. The TypeScript part handles the GUI (buttons + controls), and guides the multi-threading (as browsers can only multi-thread through WebWorkers). The general structure of both parts is outlines below:
+
+### Rust Source
+The Rust sourcecode is located in the `src` directory. Some important files are described below.
+
+* `lib.rs` - The compilation entry point of the application (not really important)
+* `wasm_interface.rs` - All *public-interface* functions. All functions that are called by TypeScript are placed here.
+* `tracer.rs` - Contains code for tracing a single ray (recursively) into a scene
+* `scenes.rs` - The hardcoded scenes
+* `graphics/`
+  * `scene.rs` - General scene description. Contains methods for tracing rays (and shadow rays) into the scene
+  * `material.rs` - The material class (reflection, diffuse, refraction; potentially with textures)
+  * `primitives/` - Contains all implemented primitives (each implements `Tracable` from `graphics/ray.rs`)
+
+### TypeScript Source
+The TypeScript sourcecode mainly deals with the GUI and the properly spawning of WebWorkers to attain proper multi-threading.
+
+> Regarding multi-threading: The WASM module is compiled once, and then passed onto 8 WebWorkers. Each of these WebWorkers gets a random subset (partition) of the pixels in the scene. Once all WebWorkers (running the WASM module) are done with raytracing for their pixels, the resulting buffer is written to the screen by the main thread.
+
+Some important files are described below.
+
+* `client/` - The code running on the main thread
+  * `index.ts` - The "main" file
+  * `raytracer/` - The interfaces for the different raytracers
+    * `singlecore.ts` - Spawns a single WASM instance on the main thread, with which it interacts
+    * `multicore.ts` - Spawns 8 WebWorkers, with which it distributes the work and synchronises the results
+* `shared/` - Library code that is shared (w.r.t. the compiler) between the main thread and the workers
+* `worker/` - Code that is running on the webworker
+  * `worker.ts` - The "main" file for the webworker. Mainly contains code to handle messages from the main thread
 
 ## 4. Credit
 * [wasm-bindgen hello world example](https://github.com/rustwasm/wasm-bindgen/tree/master/examples/hello_world) - Setup for Rust to WASM with Webpack
