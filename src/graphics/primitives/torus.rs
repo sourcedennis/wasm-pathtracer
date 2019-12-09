@@ -4,6 +4,7 @@ use roots::{find_roots_quartic, Roots, FloatType};
 use crate::math::{Vec2, Vec3};
 use crate::graphics::Material;
 use crate::graphics::ray::{Ray, Tracable, Hit};
+use crate::graphics::AABB;
 
 // A torus that lies flat; that is, its gap lies in the x/z-plane
 pub struct Torus {
@@ -72,9 +73,9 @@ impl Tracable for Torus {
         closest = closest.min( dst_roots[ i ] );
       }
 
-      let mut px = d.x as f64 + e.x as f64 * closest;
-      let mut py = d.y as f64 + e.y as f64 * closest;
-      let mut pz = d.z as f64 + e.z as f64 * closest;
+      let px = d.x as f64 + e.x as f64 * closest;
+      let py = d.y as f64 + e.y as f64 * closest;
+      let pz = d.z as f64 + e.z as f64 * closest;
 
       let alpha = 1.0 - a / ( px*px + pz*pz ).sqrt( );
       let n = Vec3::unit( ( alpha * px ) as f32, py as f32, ( alpha * pz ) as f32 );
@@ -85,6 +86,23 @@ impl Tracable for Torus {
         Some( Hit::new( closest as f32, n, self.mat.evaluate_at( &Vec2::ZERO ), true ) )
       }
     }
+  }
+
+  fn location( &self ) -> Option< Vec3 > {
+    Some( self.location )
+  }
+
+  fn aabb( &self ) -> Option< AABB > {
+    let r = self.big_r + self.small_r;
+
+    let x_min = self.location.x - r;
+    let x_max = self.location.x + r;
+    let y_min = self.location.y - self.small_r;
+    let y_max = self.location.y + self.small_r;
+    let z_min = self.location.z - r;
+    let z_max = self.location.z + r;
+
+    Some( AABB::new( x_min, y_min, z_min, x_max - x_min, y_max - y_min, z_max - z_min ) )
   }
 }
 

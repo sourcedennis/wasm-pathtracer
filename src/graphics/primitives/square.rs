@@ -1,6 +1,7 @@
 use crate::math::{Vec2, Vec3};
 use crate::graphics::Material;
 use crate::graphics::ray::{Ray, Tracable, Hit};
+use crate::graphics::AABB;
 
 /// A finite square plane in 3d
 /// For now, its normal always points upward
@@ -63,5 +64,16 @@ impl Tracable for Square {
       };
     
     Some( Hit::new( t, normal, mat, true ) )
+  }
+
+  fn location( &self ) -> Option< Vec3 > {
+    Some( self.location )
+  }
+
+  fn aabb( &self ) -> Option< AABB > {
+    let l = self.location;
+    let hsize = self.size * 0.5;
+
+    Some( AABB::new( l.x - hsize, l.y - hsize, l.z - hsize, self.size, self.size, self.size ) )
   }
 }

@@ -1,5 +1,6 @@
 use crate::math::Vec3;
 use crate::graphics::{PointMaterial};
+use crate::graphics::{AABB};
 
 // A module with `Ray` and `Hit` structures, that are useful for raytracing
 //
@@ -71,4 +72,10 @@ pub trait Tracable {
   /// Traces a ray. At the hit point the normal and material are evaluated and
   ///   included in the returned hit.
   fn trace( &self, ray : &Ray ) -> Option< Hit >;
+
+  fn location( &self ) -> Option< Vec3 >;
+
+  // Returns None if the primitive has no bounding-box, which happens when it is
+  // infinite. (Such as planes)
+  fn aabb( &self ) -> Option< AABB >;
 }

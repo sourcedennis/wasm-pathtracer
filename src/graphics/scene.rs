@@ -63,7 +63,7 @@ impl Scene {
         }
       },
       Light::Spot( ref l ) => {
-        let mut to_light : Vec3 = ( l.location - *hit_loc );
+        let mut to_light : Vec3 = l.location - *hit_loc;
         let distance_sq = to_light.len_sq( );
         to_light = to_light / distance_sq.sqrt( );
         let from_light : Vec3 = -to_light;
@@ -85,20 +85,8 @@ impl Scene {
       }
     }
   }
-}
 
-// Returns only true if a hit occurs and it occurs within at most `sqrt(d_sq)` units
-// `d_sq` is the square of the distance - for efficiency reasons
-fn is_hit_within_sq( m_hit : Option< f32 >, d_sq : f32 ) -> bool {
-  if let Some( h ) = m_hit {
-    h * h < d_sq
-  } else {
-    false
-  }
-}
-
-impl Tracable for Scene {
-  fn trace( &self, ray : &Ray ) -> Option< Hit > {
+  pub fn trace( &self, ray : &Ray ) -> Option< Hit > {
     let mut best_hit: Option< (f32, &Box< dyn Tracable >) > = None;
 
     for s in &self.shapes {
@@ -118,5 +106,33 @@ impl Tracable for Scene {
     } else {
       None
     }
+  }
+
+  pub fn trace_simple( &self, ray : &Ray ) -> Option< f32 > {
+    let mut best_hit: Option< f32 > = None;
+
+    for s in &self.shapes {
+      if let Some( new_dis ) = s.trace_simple( ray ) {
+        if let Some( bhd ) = best_hit {
+          if 0.0_f32 < new_dis && new_dis < bhd {
+            best_hit = Some( new_dis );
+          }
+        } else {
+          best_hit = Some( new_dis );
+        }
+      }
+    }
+
+    best_hit
+  }
+}
+
+// Returns only true if a hit occurs and it occurs within at most `sqrt(d_sq)` units
+// `d_sq` is the square of the distance - for efficiency reasons
+fn is_hit_within_sq( m_hit : Option< f32 >, d_sq : f32 ) -> bool {
+  if let Some( h ) = m_hit {
+    h * h < d_sq
+  } else {
+    false
   }
 }

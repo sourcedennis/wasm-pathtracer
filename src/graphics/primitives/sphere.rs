@@ -2,6 +2,7 @@ use std::f32::consts::PI;
 use crate::math::{Vec2, Vec3};
 use crate::graphics::Material;
 use crate::graphics::ray::{Ray, Tracable, Hit};
+use crate::graphics::AABB;
 
 /// A Sphere primitive
 pub struct Sphere {
@@ -102,5 +103,16 @@ impl Tracable for Sphere {
     }
 
     Some( t )
+  }
+
+  fn location( &self ) -> Option< Vec3 > {
+    Some( self.location )
+  }
+
+  fn aabb( &self ) -> Option< AABB > {
+    let l = self.location;
+    let r = self.radius;
+
+    Some( AABB::new( l.x - r, l.y - r, l.z - r, 2.0 * r, 2.0 * r, 2.0 * r ) )
   }
 }

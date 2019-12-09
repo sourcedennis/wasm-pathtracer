@@ -1,6 +1,7 @@
 use crate::math::{Vec2, Vec3};
 use crate::graphics::Material;
 use crate::graphics::ray::{Ray, Tracable, Hit};
+use crate::graphics::AABB;
 
 /// An infinite plane in 3d
 ///
@@ -55,7 +56,7 @@ impl Tracable for Plane {
   }
   
   fn trace_simple( &self, ray : &Ray ) -> Option< f32 > {
-    let mut normal = self.normal;
+    let normal = self.normal;
     let n_dot_dir = normal.dot( ray.dir );
 
     if n_dot_dir == 0.0 {
@@ -73,5 +74,15 @@ impl Tracable for Plane {
     } else {
       Some( t )
     }
+  }
+
+  fn location( &self ) -> Option< Vec3 > {
+    // Planes are infinite, and thus have no location
+    None
+  }
+
+  fn aabb( &self ) -> Option< AABB > {
+    // Planes are infinite, and thus have no AABB
+    None
   }
 }
