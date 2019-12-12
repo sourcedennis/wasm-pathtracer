@@ -7,6 +7,7 @@ use crate::graphics::AABB;
 /// For now, its normal always points upward
 ///
 /// It is characterised by a location and size
+#[derive(Debug)]
 pub struct Square {
   location : Vec3,
   // The size along the x- and z-axis
@@ -74,6 +75,14 @@ impl Tracable for Square {
     let l = self.location;
     let hsize = self.size * 0.5;
 
-    Some( AABB::new( l.x - hsize, l.y - hsize, l.z - hsize, self.size, self.size, self.size ) )
+    Some( AABB::new1(
+        l.x - hsize
+      , l.y
+      , l.z - hsize
+      , l.x + hsize
+      , l.y
+      , l.z + hsize
+      )
+    )
   }
 }

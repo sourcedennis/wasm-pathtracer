@@ -4,6 +4,7 @@ use crate::graphics::ray::{Ray, Tracable, Hit};
 use crate::graphics::AABB;
 
 /// An axis-aligned box
+#[derive(Debug)]
 pub struct AARect {
   x_min : f32,
   x_max : f32,
@@ -150,11 +151,14 @@ impl Tracable for AARect {
   }
 
   fn aabb( &self ) -> Option< AABB > {
-    Some( AABB::new(
-      self.x_min, self.y_min, self.z_min
-    , self.x_max - self.x_min
-    , self.y_max - self.y_min
-    , self.z_max - self.z_min
-    ) )
+    Some( AABB::new1(
+        self.x_min
+      , self.y_min
+      , self.z_min
+      , self.x_max
+      , self.y_max
+      , self.z_max
+      )
+    )
   }
 }

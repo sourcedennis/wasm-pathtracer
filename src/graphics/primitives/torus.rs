@@ -7,6 +7,7 @@ use crate::graphics::ray::{Ray, Tracable, Hit};
 use crate::graphics::AABB;
 
 // A torus that lies flat; that is, its gap lies in the x/z-plane
+#[derive(Debug)]
 pub struct Torus {
   location : Vec3,
   big_r    : f32,
@@ -102,7 +103,15 @@ impl Tracable for Torus {
     let z_min = self.location.z - r;
     let z_max = self.location.z + r;
 
-    Some( AABB::new( x_min, y_min, z_min, x_max - x_min, y_max - y_min, z_max - z_min ) )
+    Some( AABB::new1(
+        x_min
+      , y_min
+      , z_min
+      , x_max
+      , y_max
+      , z_max
+      )
+    )
   }
 }
 

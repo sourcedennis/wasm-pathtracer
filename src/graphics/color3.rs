@@ -8,7 +8,7 @@ use std::ops;
 ///   distinction. (Which causes some duplicate code, sadly)
 /// Also, color channel values are *always* within the range [0-1]
 ///   which sets them apart from Vec3's
-#[derive(Clone,Copy)]
+#[derive(Clone,Copy,Debug)]
 pub struct Color3 {
   pub red   : f32,
   pub green : f32,
@@ -16,7 +16,12 @@ pub struct Color3 {
 }
 
 impl Color3 {
-  pub const BLACK: Color3 = Color3 { red: 0.0, green: 0.0, blue: 0.0 };
+  pub const BLACK  : Color3 = Color3 { red: 0.0, green: 0.0, blue: 0.0 };
+  pub const RED    : Color3 = Color3 { red: 1.0, green: 0.0, blue: 0.0 };
+  pub const GREEN  : Color3 = Color3 { red: 0.0, green: 1.0, blue: 0.0 };
+  pub const BLUE   : Color3 = Color3 { red: 0.0, green: 0.0, blue: 1.0 };
+  pub const PURPLE : Color3 = Color3 { red: 0.5, green: 0.0, blue: 0.5 };
+  pub const WHITE  : Color3 = Color3 { red: 1.0, green: 1.0, blue: 1.0 };
 
   /// Constructs a new Color3
   ///

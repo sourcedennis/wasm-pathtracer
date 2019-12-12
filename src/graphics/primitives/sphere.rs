@@ -5,6 +5,7 @@ use crate::graphics::ray::{Ray, Tracable, Hit};
 use crate::graphics::AABB;
 
 /// A Sphere primitive
+#[derive(Debug)]
 pub struct Sphere {
   /// The center of the sphere
   location : Vec3,
@@ -113,6 +114,6 @@ impl Tracable for Sphere {
     let l = self.location;
     let r = self.radius;
 
-    Some( AABB::new( l.x - r, l.y - r, l.z - r, 2.0 * r, 2.0 * r, 2.0 * r ) )
+    Some( AABB::new1( l.x - r, l.y - r, l.z - r, l.x + r, l.y + r, l.z + r ) )
   }
 }

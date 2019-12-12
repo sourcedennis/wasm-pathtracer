@@ -3,7 +3,7 @@ import { Camera }       from '@s/graphics/camera';
 import { Vec2 }         from '@s/math/vec2';
 import { Triangles }    from '@s/graphics/triangles';
 import { Msg, MsgC2WInit, MsgC2WUpdateCamera, MsgC2WUpdateParams
-       , MsgC2WUpdateScene, MsgC2WCompute, MsgC2WStoreMesh, MsgC2WStoreTexture } from '@s/worker_messages';
+       , MsgC2WUpdateScene, MsgC2WCompute, MsgC2WStoreMesh, MsgC2WStoreTexture, MsgC2WRebuildBVH } from '@s/worker_messages';
 import { Raytracer }           from './index';
 import { shuffle, divideOver } from '../util';
 import { Texture }             from '@s/graphics/texture';
@@ -29,9 +29,11 @@ export class MulticoreRaytracer implements Raytracer {
   private readonly _workers      : Worker[];
   private readonly _onInitDone   : Promise< void >;
   private          _onRenderDone : EmptyPromise< Uint8Array > | undefined;
+  private          _bvhPromise   : EmptyPromise< number > | undefined;
   // Number of workers that have raytraced all their assigned pixels for the
   //   current frame.
-  private          _numDone      : number;
+  private          _numDone           : number;
+  private          _queue             : JobQueue;
 
   // True if the camera has updated since the last render tick
   // This boolean is used, such that the camera is not updated more than once
@@ -50,7 +52,7 @@ export class MulticoreRaytracer implements Raytracer {
                       // *must* be the module obtained from the `src` directory
                     , mod        : WebAssembly.Module
                       // True if a depth-buffer is rendered. Diffuse otherwise
-                    , isDepth    : boolean
+                    , renderType : number
                       // Maximum number of ray bounces
                     , rayDepth   : number
                       // Scene camera
@@ -73,7 +75,8 @@ export class MulticoreRaytracer implements Raytracer {
 
     let onInit = new EmptyPromise< void >( );
     let numInitDone  = 0;
-    this._onInitDone = onInit.promise;
+    this._queue      = new JobQueue( );
+    this._onInitDone = this._queue.add( ( ) => onInit.promise );
     this._numDone    = 0;
 
     // Divide the pixels in the viewport randomly over the workers
@@ -102,36 +105,44 @@ export class MulticoreRaytracer implements Raytracer {
           if ( this._numDone === numWorkers ) {
             ( <EmptyPromise< Uint8Array >> this._onRenderDone ).fulfil( buffer8 );
           }
+        } else if ( typelessMsg.type === 'bvh_done' ) {
+          this._numDone++;
+          if ( this._numDone === numWorkers ) {
+            ( <EmptyPromise< number >> this._bvhPromise ).fulfil( 0 );
+          }
         }
       } );
 
-      let initMsg : MsgC2WInit = { type: 'init', mod, sceneId, pixels: bins[ i ], buffer, width, height, isDepth, rayDepth, camera };
+      let initMsg : MsgC2WInit = { type: 'init', mod, sceneId, pixels: bins[ i ], buffer, width, height, renderType, rayDepth, camera };
       this._workers[ i ].postMessage( initMsg );
     }
   }
 
   // See `Raytracer#render()`
   public render( ): Promise< Uint8Array > {
-    let prevPromise = this._onInitDone;
-    if ( this._onRenderDone ) {
-      prevPromise = this._onRenderDone.promise.then( ( ) => { } );
-    }
-
-    return prevPromise.then( ( ) => {
-      this._numDone = 0;
-      this._onRenderDone = new EmptyPromise< Uint8Array >( );
-
-      if ( this._hasUpdatedCamera ) {
-        let cameraMsg : MsgC2WUpdateCamera = { type: 'update_camera', camera: this._camera };
-        this._postMsg( cameraMsg );
-        this._hasUpdatedCamera = false;
+    let job = ( ) => {
+      let prevPromise = this._onInitDone;
+      if ( this._onRenderDone ) {
+        prevPromise = this._onRenderDone.promise.then( ( ) => { } );
       }
-
-      let computeMsg : MsgC2WCompute = { type: 'compute' };
-      this._postMsg( computeMsg );
-
-      return this._onRenderDone.promise;
-    } );
+  
+      return prevPromise.then( ( ) => {
+        this._numDone = 0;
+        this._onRenderDone = new EmptyPromise< Uint8Array >( );
+  
+        if ( this._hasUpdatedCamera ) {
+          let cameraMsg : MsgC2WUpdateCamera = { type: 'update_camera', camera: this._camera };
+          this._postMsg( cameraMsg );
+          this._hasUpdatedCamera = false;
+        }
+  
+        let computeMsg : MsgC2WCompute = { type: 'compute' };
+        this._postMsg( computeMsg );
+  
+        return this._onRenderDone.promise;
+      } );
+    };
+    return this._queue.add( job );
   }
 
   // See `Raytracer#updateScene()`
@@ -153,8 +164,8 @@ export class MulticoreRaytracer implements Raytracer {
   }
 
   // See `Raytracer#updateParams()`
-  public updateParams( isDepth : boolean, maxRayDepth : number ): void {
-    let msg : MsgC2WUpdateParams = { type: 'update_params', isDepth, maxRayDepth };
+  public updateParams( renderType : number, maxRayDepth : number ): void {
+    let msg : MsgC2WUpdateParams = { type: 'update_params', renderType, maxRayDepth };
     this._postMsg( msg );
   }
 
@@ -182,10 +193,54 @@ export class MulticoreRaytracer implements Raytracer {
     this._postMsg( msg );
   }
 
+  // See `Raytracer#rebuildBVH()`
+  public rebuildBVH( numBins : number ): Promise< number > {
+    return this._queue.add( ( ) => {
+      this._bvhPromise = new EmptyPromise( );
+      this._numDone = 0;
+      let startTime = Date.now( );
+      let msg : MsgC2WRebuildBVH = { type: 'rebuild_bvh', numBins };
+      this._postMsg( msg );
+      return this._bvhPromise.promise.then( ( ) => Date.now( ) - startTime );
+    } );
+  }
+
   // Sends a message to all the workers
   private _postMsg( msg : Msg ): void {
     for ( let i = 0; i < this._workers.length; i++ ) {
       this._workers[ i ].postMessage( msg );
+    }
+  }
+}
+
+class JobQueue {
+  private readonly _queue     : ( ( ) => Promise< void > )[];
+  private          _isRunning : boolean;
+
+  public constructor( ) {
+    this._queue = [];
+    this._isRunning = false;
+  }
+
+  public add< T >( f : ( ) => Promise< T > ): Promise< T > {
+    if ( !this._isRunning ) {
+      this._isRunning = true;
+      let ep = new EmptyPromise< T >( );
+      f( ).then( v => { this._next( ); ep.fulfil( v ); } );
+      return ep.promise;
+    } else {
+      let ep = new EmptyPromise< T >( );
+      this._queue.push( ( ) => f( ).then( v => { ep.fulfil( v ); } ) );
+      return ep.promise;
+    }
+  }
+
+  private _next( ): void {
+    if ( this._queue.length > 0 ) {
+      let job = < ( ) => Promise< void > > this._queue.shift( );
+      job( ).then( ( ) => this._next( ) );
+    } else {
+      this._isRunning = false;
     }
   }
 }

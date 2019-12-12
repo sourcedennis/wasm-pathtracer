@@ -26,7 +26,7 @@ export interface Raytracer {
   // Affects *following* render calls (so not any currently active calls)
   // `isDepth` is true if a depth-buffer is rendered. Otherwise a diffuse-buffer
   // `maxRayDepth` is the maximum number of ray-bounces in the raytracer
-  updateParams( isDepth : boolean, maxRayDepth : number ): void;
+  updateParams( renderType : number, maxRayDepth : number ): void;
 
   // Updates the camera
   // Affects *following* render calls (so not any currently active calls)
@@ -43,4 +43,6 @@ export interface Raytracer {
   // Textures are obtained externally, and sent to the raytracer through this
   // method.
   storeTexture( id : number, texture : Texture ): void;
+
+  rebuildBVH( numBinds : number ): Promise< number >;
 }

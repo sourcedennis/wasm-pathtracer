@@ -62,7 +62,7 @@ type Scene
   | SceneMesh
   | SceneTexture
 
-type RenderType = RenderColor | RenderDepth
+type RenderType = RenderColor | RenderDepth | RenderBvh
 
 type Msg
   = UpdatePerformance Int Int Int -- render times: avg min max
@@ -142,6 +142,7 @@ update msg model =
             case t of
               RenderColor -> 0
               RenderDepth -> 1
+              RenderBvh   -> 2
       in
       ( { model | renderType = t }, updateRenderType rtInt )
     SelectReflectionDepth t ->
@@ -172,30 +173,33 @@ view m =
     , hr [] []
     , div []
         [ span [] [ text "Scene" ]
-        , buttonC (m.scene == SceneCubeAndSpheres) (SelectScene SceneCubeAndSpheres)
-            [ class "choice", class "top", style "width" "160pt", style "text-align" "left" ]
-            [ text "Cube and spheres" ]
-        , buttonC (m.scene == SceneSimpleBall) (SelectScene SceneSimpleBall)
-            [ class "choice", class "middle", style "width" "160pt", style "border-left" "none", style "border-top" "1px solid white", style "text-align" "left" ]
-            [ text "Spotlight Torus" ]
+        -- , buttonC (m.scene == SceneCubeAndSpheres) (SelectScene SceneCubeAndSpheres)
+        --     [ class "choice", class "top", style "width" "160pt", style "text-align" "left" ]
+        --     [ text "Cube and spheres" ]
+        -- , buttonC (m.scene == SceneSimpleBall) (SelectScene SceneSimpleBall)
+        --     [ class "choice", class "middle", style "width" "160pt", style "border-left" "none", style "border-top" "1px solid white", style "text-align" "left" ]
+        --     [ text "Spotlight Torus" ]
         , buttonC (m.scene == SceneAirHole) (SelectScene SceneAirHole)
             [ class "choice", class "middle", style "width" "160pt", style "border-left" "none", style "border-top" "1px solid white", style "text-align" "left" ]
             [ text "Air Hole" ]
         , buttonC (m.scene == SceneMesh) (SelectScene SceneMesh)
             [ class "choice", class "middle", style "width" "160pt", style "border-left" "none", style "border-top" "1px solid white", style "text-align" "left" ]
             [ text ".obj Mesh" ]
-        , buttonC (m.scene == SceneTexture) (SelectScene SceneTexture)
-            [ class "choice", class "bottom", style "width" "160pt", style "text-align" "left" ]
-            [ text "Whitted Turner's Scene" ]
+        -- , buttonC (m.scene == SceneTexture) (SelectScene SceneTexture)
+        --     [ class "choice", class "bottom", style "width" "160pt", style "text-align" "left" ]
+        --     [ text "Whitted Turner's Scene" ]
         ]
     , div []
         [ span [] [ text "Render type" ]
         , buttonC (m.renderType == RenderColor) (SelectType RenderColor)
-            [ class "choice", class "left", style "width" "80pt" ]
+            [ class "choice", class "left", style "width" "70pt" ]
             [ text "Color" ]
         , buttonC (m.renderType == RenderDepth) (SelectType RenderDepth)
-            [ class "choice", class "right", style "width" "80pt" ]
+            [ class "choice", class "middle", style "width" "70pt" ]
             [ text "Depth" ]
+        , buttonC (m.renderType == RenderBvh) (SelectType RenderBvh)
+            [ class "choice", class "right", style "width" "70pt" ]
+            [ text "BVH" ]
         ]
     , div []
         [ span [] [ text "Ray depth" ]
@@ -239,7 +243,18 @@ view m =
             [ text "Multi (8)" ]
         ]
     , div []
-        [ span [] [ text "Camera" ]
+        [ span [] [ text "BVH" ]
+        , buttonC (not m.isMulticore) (SelectMulticore False)
+            [ class "choice", class "left", style "width" "90pt" ]
+            [ text "Enabled" ]
+        , buttonC m.isMulticore (SelectMulticore True)
+            [ class "choice", class "right", style "width" "90pt" ]
+            [ text "Disabled" ]
+        , div []
+            [ span [] [ text "Build time: ", text "100ms" ] ]
+        ]
+    , div []
+        [ span [] [ text "Viewport" ]
         , table []
             [ tr []
                 [ td [] [ text "width" ]
@@ -259,12 +274,12 @@ view m =
                                 ]
                 ]
             ]
-        , hr [ style "margin-left" "30pt", style "margin-right" "30pt", style "border-color" "gray" ] []
-        , table []
-            [ tr [] [ th [] [ text "location:" ], td [ style "width" "100pt" ] [ span [] [ text <| showXYZ m.camera.x m.camera.y m.camera.z ] ] ]
-            , tr [] [ th [] [ text "rot x:" ], td [ style "text-align" "left", style "padding-left" "8pt" ] [ span [] [ text <| R.round 2 m.camera.rotX ] ] ]
-            , tr [] [ th [] [ text "rot y:" ], td [ style "text-align" "left", style "padding-left" "8pt" ] [ span [] [ text <| R.round 2 m.camera.rotY ] ] ]
-            ]
+        -- , hr [ style "margin-left" "30pt", style "margin-right" "30pt", style "border-color" "gray" ] []
+        -- , table []
+        --     [ tr [] [ th [] [ text "location:" ], td [ style "width" "100pt" ] [ span [] [ text <| showXYZ m.camera.x m.camera.y m.camera.z ] ] ]
+        --     , tr [] [ th [] [ text "rot x:" ], td [ style "text-align" "left", style "padding-left" "8pt" ] [ span [] [ text <| R.round 2 m.camera.rotX ] ] ]
+        --     , tr [] [ th [] [ text "rot y:" ], td [ style "text-align" "left", style "padding-left" "8pt" ] [ span [] [ text <| R.round 2 m.camera.rotY ] ] ]
+        --     ]
         ]
     , div []
         [ span [] [ text "Performance (in last second)" ]

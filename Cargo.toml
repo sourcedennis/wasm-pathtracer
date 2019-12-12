@@ -7,9 +7,15 @@ edition = "2018"
 [lib]
 crate-type = ["cdylib"]
 
+[[bin]]
+name = "raytracer-debug"
+path = "src/main.rs"
+
 [dependencies]
 wasm-bindgen = "0.2.54"
 roots        = "0.0.4"
+
+rand         = "0.7.2"
 
 [profile.release]
 lto = true

@@ -1,6 +1,7 @@
 use crate::math::Vec3;
 use crate::graphics::{PointMaterial};
 use crate::graphics::{AABB};
+use std::fmt;
 
 // A module with `Ray` and `Hit` structures, that are useful for raytracing
 //
@@ -57,7 +58,7 @@ impl Hit {
 }
 
 /// A trait for physical objects, with which a ray of light can be intersected
-pub trait Tracable {
+pub trait Tracable : fmt::Debug {
   /// Traces a ray with limited properties evaluated at the hit.
   /// That is, no normal or materials are included. Only its distance from the
   ///   ray origin.

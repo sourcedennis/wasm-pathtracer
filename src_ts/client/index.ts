@@ -28,9 +28,11 @@ class Config {
   // The maximum number of ray bounces
   public rayDepth         : number;
   // True if rendering a depth-buffer. Diffuse-buffer otherwise
-  public isRenderingDepth : boolean;
+  public renderType       : number;
   // An unique id for hard-coded scenes. (Defined in the Rust part)
   public sceneId          : number;
+
+  public hasBvh           : boolean;
 
   public constructor( ) {
     this.width            = 512;
@@ -38,8 +40,9 @@ class Config {
     this.isRunning        = true;
     this.isMulticore      = false;
     this.rayDepth         = 1;
-    this.isRenderingDepth = false; // depth-map vs color
+    this.renderType       = 0; // 0=color
     this.sceneId          = 0;
+    this.hasBvh           = false;
   }
 }
 
@@ -74,6 +77,8 @@ class Global {
   //   statistics from the last second of the form: [avg, min, max]
   private readonly _onRenderDone : XObservable< [number,number,number] >;
 
+  private readonly _onBvhDone    : XObservable< number | undefined >;
+
   // Constructs a new managing environment for the provided on-screen canvas
   public constructor( canvas : HTMLCanvasElement, mod : WebAssembly.Module ) {
     this._canvas  = canvas;
@@ -86,6 +91,7 @@ class Global {
     this._canvasElem   = new CanvasElement( canvas, this._target );
     this._fpsTracker   = new FpsTracker( );
     this._onRenderDone = new XObservable( );
+    this._onBvhDone    = new XObservable( );
     this._meshes       = new Map( );
     this._textures     = new Map( );
     this._raytracer    = this._setupRaytracer( );
@@ -103,16 +109,25 @@ class Global {
   }
 
   // Renders a depth-buffer if true. A diffuse-buffer otherwise
-  public setRenderDepthBuffer( b : boolean ) {
-    this._config.isRenderingDepth = b;
-    this._raytracer.updateParams( this._config.isRenderingDepth, this._config.rayDepth );
+  public setRenderType( t : number ) {
+    this._config.renderType = t;
+    this._raytracer.updateParams( this._config.renderType, this._config.rayDepth );
     this._fpsTracker.clear( );
+  }
+
+  public enableBvh( b : boolean ): void {
+    this._config.hasBvh = b;
+    if ( b ) {
+      this._rebuildBvh( );
+    } else {
+      this._onBvhDone.next( undefined );
+    }
   }
 
   // Updates the maximum ray-depth of the renderer
   public setReflectionDepth( d : number ) {
     this._config.rayDepth = d;
-    this._raytracer.updateParams( this._config.isRenderingDepth, this._config.rayDepth );
+    this._raytracer.updateParams( this._config.renderType, this._config.rayDepth );
     this._fpsTracker.clear( );
   }
 
@@ -140,6 +155,7 @@ class Global {
       this._fpsTracker.clear( );
     }
     this._raytracer = this._setupRaytracer( );
+    this._rebuildBvh( );
   }
 
   // Updates the scene that is currently rendered
@@ -151,6 +167,8 @@ class Global {
 
     this._cameraController.set( sceneCamera( sid ) );
     this._raytracer.updateCamera( this._cameraController.get( ) );
+
+    this._rebuildBvh( );
   }
 
   public updateViewport( width : number, height : number ) {
@@ -165,6 +183,7 @@ class Global {
       this._fpsTracker.clear( );
     }
     this._raytracer = this._setupRaytracer( );
+    this._rebuildBvh( );
   }
 
   // Meshes can only be loaded by JavaScript, yet they need to be passed
@@ -186,6 +205,10 @@ class Global {
     return this._onRenderDone.observable;
   }
 
+  public onBvhDone( ): Observable< number | undefined > {
+    return this._onBvhDone.observable;
+  }
+
   // Gets notified when the camera updates
   public onCameraUpdate( ): Observable< Camera > {
     return this._cameraController.onUpdate( );
@@ -196,6 +219,14 @@ class Global {
   //   current state of the camera
   public triggerCameraUpdate( ): void {
     this._cameraController.set( this._cameraController.get( ) );
+  }
+
+  private _rebuildBvh( ): void {
+    if ( this._config.hasBvh ) {
+      this._raytracer.rebuildBVH( 32 ).then( res => {
+        this._onBvhDone.next( res );
+      } );
+    }
   }
 
   // Constructs a new raytracer with the current configuration
@@ -210,7 +241,7 @@ class Global {
           c.height,
           c.sceneId,
           this._mod,
-          c.isRenderingDepth,
+          c.renderType,
           c.rayDepth,
           this._cameraController.get( ),
           8
@@ -221,7 +252,7 @@ class Global {
           c.height,
           c.sceneId,
           this._mod,
-          c.isRenderingDepth,
+          c.renderType,
           c.rayDepth,
           this._cameraController.get( )
         );
@@ -271,7 +302,7 @@ function sceneCamera( sceneId : number ): Camera {
   } else if ( sceneId === 2 ) { // air hole
     return new Camera( new Vec3( -3.7, 3.5, -0.35 ), 0.47, 0.54 );
   } else if ( sceneId === 3 ) { // .obj mesh
-    return new Camera( new Vec3( 0.0, 0.69, 3.54 ), 0.73, 0 );
+    return new Camera( new Vec3( 0.0, 4.8, 2.6 ), 0.97, 0.0 );
   } else if ( sceneId === 4 ) { // Whitted Turner's Scene
     return new Camera( new Vec3( -1.1, 1.4, -2.5 ), 0.1, 0.0 );
   } else {
@@ -290,7 +321,7 @@ document.addEventListener( 'DOMContentLoaded', ev => {
 
       let settingsPanel = document.getElementById( 'sidepanel' );
       const app = Elm.SidePanel.init( { node: settingsPanel } );
-      app.ports.updateRenderType.subscribe( t => env.setRenderDepthBuffer( t == 1 ) );
+      app.ports.updateRenderType.subscribe( t => env.setRenderType( t ) );
       app.ports.updateReflectionDepth.subscribe( d => env.setReflectionDepth( d ) );
       app.ports.updateRunning.subscribe( r => env.updateRunning( r ) );
       app.ports.updateMulticore.subscribe( r => env.updateMulticore( r ) );
@@ -302,11 +333,36 @@ document.addEventListener( 'DOMContentLoaded', ev => {
         app.ports.updateCamera.send( { x: c.location.x, y: c.location.y, z: c.location.z, rotX: c.rotX, rotY: c.rotY } )
       );
       env.triggerCameraUpdate( );
+      
+      env.onBvhDone( ).subscribe( r => {
+        console.log( 'BVH Done!', r );
+      } );
 
-      fetch( 'torus.obj' ).then( f => f.text( ) ).then( s => {
+      env.enableBvh( true );
+
+      /*fetch( 'torus.obj' ).then( f => f.text( ) ).then( s => {
         let triangles = parseObj( s );
         env.storeMesh( MeshId.MESH_TORUS, triangles );
-      } );
+      } );*/
+
+      let vertices = new Float32Array( 9 * 10000 );
+
+      for ( let i = 0; i < 10000; i++ ) {
+        let centerX = Math.random( ) * 5 - 2.5;
+        let centerY = Math.random( ) * 5 - 2.5;
+        let centerZ = Math.random( ) * 5;
+
+        vertices[ i * 9 + 0 ] = centerX + Math.random( ) * 0.5;
+        vertices[ i * 9 + 1 ] = centerY + Math.random( ) * 0.5;
+        vertices[ i * 9 + 2 ] = centerZ + Math.random( ) * 0.5;
+        vertices[ i * 9 + 3 ] = centerX + Math.random( ) * 0.5;
+        vertices[ i * 9 + 4 ] = centerY + Math.random( ) * 0.5;
+        vertices[ i * 9 + 5 ] = centerZ + Math.random( ) * 0.5;
+        vertices[ i * 9 + 6 ] = centerX + Math.random( ) * 0.5;
+        vertices[ i * 9 + 7 ] = centerY + Math.random( ) * 0.5;
+        vertices[ i * 9 + 8 ] = centerZ + Math.random( ) * 0.5;
+      }
+      env.storeMesh( MeshId.MESH_TORUS, new Triangles( vertices, vertices ) );
 
       env.storeTexture( 0, CHECKER_RED_YELLOW );
     } );

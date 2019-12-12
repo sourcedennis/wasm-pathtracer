@@ -18,20 +18,20 @@ export class SinglecoreRaytracer implements Raytracer {
   private readonly _height : number;
 
   public constructor( // Viewport size
-                      width    : number
-                    , height   : number
+                      width      : number
+                    , height     : number
                       // Scene ids uniquely identify hardcoded scenes. Only used
                       // to communicate it with Rust
-                    , sceneId  : number
+                    , sceneId    : number
                       // The compiled WebAssembly module.
                       // *must* be the module obtained from the `src` directory
-                    , mod      : WebAssembly.Module
+                    , mod        : WebAssembly.Module
                       // True if a depth-buffer is rendered. Diffuse otherwise
-                    , isDepth  : boolean
+                    , renderType : number
                       // Maximum number of ray bounces
-                    , rayDepth : number
+                    , rayDepth   : number
                       // Scene camera
-                    , camera   : Camera ) {
+                    , camera     : Camera ) {
     this._width  = width;
     this._height = height;
 
@@ -41,7 +41,7 @@ export class SinglecoreRaytracer implements Raytracer {
       
     this._ins = WebAssembly.instantiate( mod, importObject ).then( ins => <any> ins ).then( ins => {
       // Pass stuff across WASM boundary (only primitives allowed)
-      ins.exports.init( width, height, sceneId, isDepth, rayDepth
+      ins.exports.init( width, height, sceneId, renderType, rayDepth
                       , camera.location.x, camera.location.y, camera.location.z
                       , camera.rotX, camera.rotY );
       
@@ -85,10 +85,10 @@ export class SinglecoreRaytracer implements Raytracer {
   }
 
   // See `Raytracer#updateParams()`
-  public updateParams( isDepth : boolean, maxRayDepth : number ): void {
+  public updateParams( renderType : number, maxRayDepth : number ): void {
     this._ins.then( ins => {
       let exps = <any> ins.exports;
-      exps.update_params( isDepth ? 1 : 0, maxRayDepth );
+      exps.update_params( renderType, maxRayDepth );
     } );
   }
 
@@ -104,6 +104,16 @@ export class SinglecoreRaytracer implements Raytracer {
   // public updateViewport( width : number, height : number ) {
   //   console.error( 'TODO: Update viewport' ); 
   // }
+
+  // See `Raytracer#rebuildBVH()`
+  public rebuildBVH( numBins : number ): Promise< number > {
+    return this._ins.then( ins => {
+      let exps = <any> ins.exports;
+      let time = Date.now( );
+      exps.rebuild_bvh( numBins );
+      return Date.now( ) - time;
+    } );
+  }
 
   // See `Raytracer#storeMesh()`
   public storeMesh( id : number, mesh : Triangles ): void {

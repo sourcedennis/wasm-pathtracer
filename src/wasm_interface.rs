@@ -10,7 +10,7 @@ use crate::graphics::{Mesh};
 use crate::graphics::{Texture};
 use crate::math::{Vec3};
 use crate::scenes::{setup_scene, setup_scene_ball, setup_scene_cubesphere, setup_scene_obj, setup_scene_texture};
-use crate::tracer::{MatRefract, Camera, trace_original_color, trace_original_depth};
+use crate::tracer::{MatRefract, Camera, trace_original_color, trace_original_depth, trace_original_bvh};
 
 // This file contains all the functions that are exposed through WebAssembly
 // Interfacing with JavaScript is a bit annoying, as only primitives (i32, i64, f32, f64)
@@ -28,6 +28,20 @@ use crate::tracer::{MatRefract, Camera, trace_original_color, trace_original_dep
 // General notes:
 // * Z points INTO the screen. -Z points to the eye
 
+enum RenderType {
+  RenderColor, RenderDepth, RenderBVH
+}
+
+impl RenderType {
+  fn from( u : u32 ) -> RenderType {
+    match u {
+      0 => RenderType::RenderColor,
+      1 => RenderType::RenderDepth,
+      2 => RenderType::RenderBVH,
+      _ => RenderType::RenderColor
+    }
+  }
+}
 
 /// The state of a rendering session
 ///   (Sessions change upon framebuffer resize)
@@ -40,7 +54,7 @@ struct Config {
   viewport_width  : u32,
   viewport_height : u32,
   // True if rendering a depth buffer. Otherwise a color buffer
-  is_depth        : bool,
+  render_type     : RenderType,
   resultbuffer    : Vec< u8 >,
   // Pixels that are handled by the renderer
   pixel_coords    : Vec< ( u32, u32 ) >,
@@ -64,7 +78,7 @@ static mut CONFIG : Option< Config > = None;
 
 /// Initialises the *Session State*.
 #[wasm_bindgen]
-pub fn init( width : u32, height : u32, scene_id : u32, is_depth : u32, max_ray_depth : u32
+pub fn init( width : u32, height : u32, scene_id : u32, render_type : u32, max_ray_depth : u32
            , cam_x : f32, cam_y : f32, cam_z : f32, cam_rot_x : f32, cam_rot_y : f32 ) {
   unsafe {
     // Here is quite some code duplication, but this is hard to avoid as global state needs
@@ -75,7 +89,7 @@ pub fn init( width : u32, height : u32, scene_id : u32, is_depth : u32, max_ray_
       // ## Session State
       conf.viewport_width  = width;
       conf.viewport_height = height;
-      conf.is_depth        = is_depth != 0;
+      conf.render_type     = RenderType::from( render_type );
       conf.resultbuffer    = vec![0; (width*height*4) as usize];
       conf.pixel_coords    = vec![(0,0); (width*height) as usize];
       conf.rays            = vec![Ray::new( Vec3::ZERO, Vec3::ZERO ); (width*height) as usize];
@@ -100,7 +114,7 @@ pub fn init( width : u32, height : u32, scene_id : u32, is_depth : u32, max_ray_
         // ## Session State
       , viewport_width:   width
       , viewport_height:  height
-      , is_depth:         is_depth != 0
+      , render_type:      RenderType::from( render_type )
       , resultbuffer:     vec![0; (width*height*4) as usize]
         // Note that the actual pixels for this "thread" are distributed by JavaScript
       , pixel_coords:     vec![(0,0); (width*height) as usize]
@@ -189,10 +203,10 @@ pub fn ray_store_done( ) {
 /// Updates the rendering session with new parameters
 /// Other aspects of the session remain the same
 #[wasm_bindgen]
-pub fn update_params( is_depth : u32, max_ray_depth : u32 ) {
+pub fn update_params( render_type : u32, max_ray_depth : u32 ) {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
-      conf.is_depth      = ( is_depth != 0 );
+      conf.render_type   = RenderType::from( render_type );
       conf.max_ray_depth = max_ray_depth;
       conf.mat_stack     = Stack::new1( ( max_ray_depth + 1 ) as usize, MatRefract::AIR );
     } else {
@@ -328,6 +342,17 @@ pub fn notify_texture_loaded( id : u32 ) -> bool {
   }
 }
 
+#[wasm_bindgen]
+pub fn rebuild_bvh( num_bins : u32 ) {
+  unsafe {
+    if let Some( ref mut conf ) = CONFIG {
+      conf.scene.rebuild_bvh( num_bins as usize )
+    } else {
+      panic!( "init not called" )
+    }
+  }
+}
+
 /// Actually traces all the rays
 /// Note that it only traces rays whose pixels are assigned to this instance.
 ///   (in multi-threading different instances are assigned different pixels)
@@ -337,10 +362,10 @@ pub fn compute( ) {
     if let Some( ref mut conf ) = CONFIG {
       // These two loops are extracted (instead of checking for `is_depth` in the body),
       //   because I'm unsure whether the compiler hoists this. So, I hoist it.
-      if conf.is_depth {
-        compute_depth( conf )
-      } else {
-        compute_color( conf )
+      match conf.render_type {
+        RenderType::RenderBVH => compute_bvh( conf ),
+        RenderType::RenderColor => compute_color( conf ),
+        RenderType::RenderDepth => compute_depth( conf )
       }
     } else {
       panic!( "init not called" )
@@ -354,6 +379,19 @@ fn compute_depth( conf : &mut Config ) {
     let (x, y) = conf.pixel_coords[ i ];
 
     let res = trace_original_depth( &conf.scene, &conf.rays[ i ] );
+
+    conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
+    conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
+    conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
+    conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
+  }
+}
+
+fn compute_bvh( conf : &mut Config ) {
+  for i in 0..(conf.num_rays as usize) {
+    let (x, y) = conf.pixel_coords[ i ];
+
+    let res = trace_original_bvh( &conf.scene, &conf.rays[ i ] );
 
     conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
     conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;

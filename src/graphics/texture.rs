@@ -1,5 +1,6 @@
 use crate::graphics::Color3;
 use crate::math::Vec2;
+use std::fmt;
 
 // A RGB texture
 #[derive(Clone)]
@@ -30,4 +31,11 @@ impl Texture {
 
 fn modulo( a : u32, m : u32 ) -> u32 {
   ( ( a % m ) + m ) % m
+}
+
+
+impl fmt::Debug for Texture {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!( f, "Texture {{ width: {}, height: {} }}", self.width, self.height )
+  }
 }

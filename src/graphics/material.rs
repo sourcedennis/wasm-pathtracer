@@ -1,6 +1,7 @@
 use crate::graphics::Color3;
 use crate::graphics::Texture;
 use crate::math::{ Vec2, Vec3 };
+use std::fmt;
 
 // Exports:
 // * Material
@@ -121,5 +122,45 @@ impl PointMaterial {
   /// See `Material::refract`
   pub fn refract( absorption : Vec3, refractive_index : f32, ks : f32, n : f32 ) -> PointMaterial {
     PointMaterial::Refract { absorption, refractive_index, ks, n }
+  }
+}
+
+impl fmt::Debug for Material {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Material::Reflect { color, reflection, ks, n } => {
+        if *reflection == 0.0 {
+          if *ks == 0.0 && *n == 0.0 {
+            write!( f, "Material::Reflect {{ color: {:?} }}", color )
+          } else {
+            write!( f, "Material::Reflect {{ color: {:?}, ks: {}, n: {} }}", color, ks, n )
+          }
+        } else if *ks == 0.0 && *n == 0.0 {
+          write!( f, "Material::Reflect {{ color: {:?}, reflection: {} }}", color, reflection )
+        } else {
+          write!( f, "Material::Reflect {{ color: {:?}, reflection: {}, ks: {}, n: {} }}", color, reflection, ks, n )
+        }
+      },
+      Material::ReflectTexture { texture, reflection, ks, n } => {
+        if *reflection == 0.0 {
+          if *ks == 0.0 && *n == 0.0 {
+            write!( f, "Material::ReflectTexture {{ texture: {:?} }}", texture )
+          } else {
+            write!( f, "Material::ReflectTexture {{ texture: {:?}, ks: {}, n: {} }}", texture, ks, n )
+          }
+        } else if *ks == 0.0 && *n == 0.0 {
+          write!( f, "Material::ReflectTexture {{ texture: {:?}, reflection: {} }}", texture, reflection )
+        } else {
+          write!( f, "Material::ReflectTexture {{ texture: {:?}, reflection: {}, ks: {}, n: {} }}", texture, reflection, ks, n )
+        }
+      },
+      Material::Refract { absorption, refractive_index, ks, n } => {
+        if *ks == 0.0 && *n == 0.0 {
+          write!( f, "Material::Refract {{ absorption: {:?}, refractive_index: {} }}", absorption, refractive_index )
+        } else {
+          write!( f, "Material::Refract {{ absorption: {:?}, refractive_index: {}, ks: {}, n: {} }}", absorption, refractive_index, ks, n )
+        }
+      }
+    }
   }
 }

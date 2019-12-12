@@ -1,4 +1,5 @@
 use std::ops;
+use std::fmt;
 
 /// A vector in 3-dimensional space
 #[derive(Copy,Clone)]
@@ -24,9 +25,7 @@ impl Vec3 {
 
   /// Scales the vector such that its length becomes 1
   pub fn normalize( self ) -> Vec3 {
-    let lenSq = self.dot( self );
-    let len = lenSq.sqrt( );
-    Vec3::new( self.x / len, self.y / len, self.z / len )
+    self * ( 1.0 / self.len( ) )
   }
 
   /// Computes the dot product with the provided Vec3
@@ -145,3 +144,10 @@ impl ops::AddAssign< Vec3 > for Vec3 {
     self.z += v.z;
   }
 }
+
+impl fmt::Debug for Vec3 {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!( f, "vec3({}, {}, {})", self.x, self.y, self.z )
+  }
+}
+          

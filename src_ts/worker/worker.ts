@@ -1,5 +1,6 @@
 import { Msg, MsgC2WInit, MsgC2WCompute, MsgC2WUpdateCamera, MsgC2WUpdateParams
-       , MsgC2WUpdateScene, MsgW2CInitDone, MsgW2CComputeDone, MsgC2WStoreMesh, MsgC2WStoreTexture
+       , MsgC2WUpdateScene, MsgW2CInitDone, MsgW2CComputeDone, MsgW2CBvhDone
+       , MsgC2WStoreMesh, MsgC2WStoreTexture, MsgC2WRebuildBVH
        } from '@s/worker_messages';
 import { MsgHandler } from './msg_handler';
 
@@ -20,6 +21,7 @@ handlers.register( 'update_camera', handleUpdateCamera );
 handlers.register( 'update_scene',  handleUpdateScene );
 handlers.register( 'store_mesh',    handleStoreMesh );
 handlers.register( 'store_texture', handleStoreTexture );
+handlers.register( 'rebuild_bvh',   handleRebuildBvh );
 
 onmessage = ev => {
   handlers.handle( ev.data );
@@ -45,7 +47,7 @@ function handleInit( msg : MsgC2WInit ): void {
   ( <any> WebAssembly ).instantiate( mod, importObject ).then( ins => {
     let iStartTime = Date.now( );
     // Pass all the primitives to initialisation
-    ins.exports.init( msg.width, msg.height, msg.sceneId, msg.isDepth, msg.rayDepth
+    ins.exports.init( msg.width, msg.height, msg.sceneId, msg.renderType, msg.rayDepth
       , camera.location.x, camera.location.y, camera.location.z, camera.rotX, camera.rotY );
 
     let rayPtr = ins.exports.ray_store( msg.pixels.length );
@@ -83,7 +85,7 @@ function handleCompute( msg : MsgC2WCompute ) {
 }
 
 function handleUpdateParams( msg : MsgC2WUpdateParams ) {
-  instance.exports.update_params( msg.isDepth ? 1 : 0, msg.maxRayDepth );
+  instance.exports.update_params( msg.renderType, msg.maxRayDepth );
 }
 
 function handleUpdateCamera( msg : MsgC2WUpdateCamera ) {
@@ -110,4 +112,10 @@ function handleStoreTexture( msg : MsgC2WStoreTexture ) {
   let dst = new Uint8Array( exps.memory.buffer, ptrRgb, msg.texture.width * msg.texture.height * 3 );
   dst.set( msg.texture.data );
   exps.notify_texture_loaded( msg.id );
+}
+
+function handleRebuildBvh( msg : MsgC2WRebuildBVH ) {
+  let exps = <any> instance.exports;
+  exps.rebuild_bvh( msg.numBins );
+  postMessage( <MsgW2CBvhDone> { type: 'bvh_done' } );
 }

@@ -11,16 +11,16 @@ export interface Msg {
 // C2W stands for Client-to-Worker
 
 export interface MsgC2WInit extends Msg {
-  type     : 'init',
-  mod      : WebAssembly.Module,
-  sceneId  : number,
-  pixels   : Vec2[],
-  buffer   : SharedArrayBuffer,
-  width    : number,
-  height   : number,
-  isDepth  : boolean,
-  rayDepth : number,
-  camera   : Camera
+  type       : 'init',
+  mod        : WebAssembly.Module,
+  sceneId    : number,
+  pixels     : Vec2[],
+  buffer     : SharedArrayBuffer,
+  width      : number,
+  height     : number,
+  renderType : number,
+  rayDepth   : number,
+  camera     : Camera
 }
 
 export interface MsgC2WUpdateCamera extends Msg {
@@ -30,7 +30,7 @@ export interface MsgC2WUpdateCamera extends Msg {
 
 export interface MsgC2WUpdateParams extends Msg {
   type        : 'update_params',
-  isDepth     : boolean,
+  renderType  : number,
   maxRayDepth : number
 }
 
@@ -51,6 +51,11 @@ export interface MsgC2WStoreTexture extends Msg {
   texture : Texture
 }
 
+export interface MsgC2WRebuildBVH extends Msg {
+  type    : 'rebuild_bvh',
+  numBins : number
+}
+
 export interface MsgC2WCompute extends Msg {
   type : 'compute'
 }
@@ -64,4 +69,8 @@ export interface MsgW2CInitDone extends Msg {
 
 export interface MsgW2CComputeDone extends Msg {
   type : 'compute_done'
+}
+
+export interface MsgW2CBvhDone extends Msg {
+  type : 'bvh_done'
 }

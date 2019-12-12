@@ -52,11 +52,22 @@ impl Camera {
 /// Traces an original ray, and produces a gray-scale value for that ray
 /// White values are close, black are far away
 pub fn trace_original_depth( scene : &Scene, ray : &Ray ) -> Color3 {
-  if let Some( h ) = scene.trace( ray ) {
-    let v = 1.0 - math::clamp( ( h.distance - 5.0 ) / 12.0, 0.0, 1.0 );
+  if let Some( d ) = scene.trace_simple( ray ) {
+    let v = 1.0 - math::clamp( ( d - 5.0 ) / 12.0, 0.0, 1.0 );
     Color3::new( v, v, v )
   } else {
     Color3::new( 0.0, 0.0, 0.0 )
+  }
+}
+
+pub fn trace_original_bvh( scene : &Scene, ray : &Ray ) -> Color3 {
+  let (d, _) = scene.trace( ray );
+  let v = math::clamp( d as f32 / 200.0, 0.0, 1.0 );
+
+  if v < 0.5 { // blur from green to blue
+    Color3::new( 0.0, 1.0 - v * 2.0, v * 2.0 )
+  } else { // blur from blue to red
+    Color3::new( ( v - 0.5 ) * 2.0, 0.0, 1.0 - ( v - 0.5 ) * 2.0 )
   }
 }
 
@@ -70,7 +81,7 @@ pub fn trace_original_color( scene : &Scene, ray : &Ray, max_rays : u32, refr_st
 /// first hit. If no hit found it returns a distance of 0 and the color black.
 /// This should be of no effect anyway.
 fn trace_color( scene : &Scene, ray : &Ray, max_rays : u32, refr_stack : &mut Stack< MatRefract > ) -> (f32, Color3) {
-  if let Some( h ) = scene.trace( ray ) {
+  if let (_, Some( h )) = scene.trace( ray ) {
     let hit_loc = ray.at( h.distance );
 
     let color =
