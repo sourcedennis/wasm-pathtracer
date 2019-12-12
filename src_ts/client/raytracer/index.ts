@@ -45,4 +45,6 @@ export interface Raytracer {
   storeTexture( id : number, texture : Texture ): void;
 
   rebuildBVH( numBinds : number ): Promise< number >;
+
+  disableBVH( ): void;
 }

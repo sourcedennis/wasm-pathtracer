@@ -3,7 +3,7 @@ import { Camera }       from '@s/graphics/camera';
 import { Vec2 }         from '@s/math/vec2';
 import { Triangles }    from '@s/graphics/triangles';
 import { Msg, MsgC2WInit, MsgC2WUpdateCamera, MsgC2WUpdateParams
-       , MsgC2WUpdateScene, MsgC2WCompute, MsgC2WStoreMesh, MsgC2WStoreTexture, MsgC2WRebuildBVH } from '@s/worker_messages';
+       , MsgC2WUpdateScene, MsgC2WCompute, MsgC2WStoreMesh, MsgC2WStoreTexture, MsgC2WRebuildBVH, MsgC2WDisableBVH } from '@s/worker_messages';
 import { Raytracer }           from './index';
 import { shuffle, divideOver } from '../util';
 import { Texture }             from '@s/graphics/texture';
@@ -26,14 +26,9 @@ import { Texture }             from '@s/graphics/texture';
 export class MulticoreRaytracer implements Raytracer {
   private readonly _width        : number;
   private readonly _height       : number;
-  private readonly _workers      : Worker[];
-  private readonly _onInitDone   : Promise< void >;
-  private          _onRenderDone : EmptyPromise< Uint8Array > | undefined;
-  private          _bvhPromise   : EmptyPromise< number > | undefined;
-  // Number of workers that have raytraced all their assigned pixels for the
-  //   current frame.
-  private          _numDone           : number;
-  private          _queue             : JobQueue;
+  private readonly _workers      : MsgController;
+  private          _queue        : JobQueue;
+  private readonly _buffer8      : Uint8Array;
 
   // True if the camera has updated since the last render tick
   // This boolean is used, such that the camera is not updated more than once
@@ -61,23 +56,22 @@ export class MulticoreRaytracer implements Raytracer {
                     , numWorkers : number ) {
     this._width   = width;
     this._height  = height;
-    this._workers = new Array( numWorkers );
+    let workers = new Array( numWorkers );
+    for ( let i = 0; i < numWorkers; i++ ) {
+      workers[ i ] = new Worker( 'worker.js' );
+    }
+    this._workers = new MsgController( workers );
 
     this._camera           = camera;
     this._hasUpdatedCamera = false;
 
-    let buffer  = new SharedArrayBuffer( width * height * 4 );
-    let buffer8 = new Uint8Array( buffer );
+    let buffer    = new SharedArrayBuffer( width * height * 4 );
+    this._buffer8 = new Uint8Array( buffer );
 
-    for ( let i = 0; i < numWorkers; i++ ) {
-      this._workers[ i ] = new Worker( 'worker.js' );
-    }
 
     let onInit = new EmptyPromise< void >( );
     let numInitDone  = 0;
     this._queue      = new JobQueue( );
-    this._onInitDone = this._queue.add( ( ) => onInit.promise );
-    this._numDone    = 0;
 
     // Divide the pixels in the viewport randomly over the workers
     // On average this equally divides the work =)
@@ -90,83 +84,48 @@ export class MulticoreRaytracer implements Raytracer {
     shuffle( rays );
     let bins = divideOver( rays, numWorkers );
 
+    let initDone = Promise.all( this._workers.awaitAll( 'init_done' ) );
+    this._queue.add( ( ) => initDone );
+
     // This initialises the workers, and listens for their messages
     for ( let i = 0; i < numWorkers; i++ ) {
-      this._workers[ i ].addEventListener( 'message', ev => {
-        const typelessMsg : Msg = ev.data;
-
-        if ( typelessMsg.type === 'init_done' ) {
-          numInitDone++;
-          if ( numInitDone === numWorkers ) {
-            onInit.fulfil( );
-          }
-        } else if ( typelessMsg.type === 'compute_done' ) {
-          this._numDone++;
-          if ( this._numDone === numWorkers ) {
-            ( <EmptyPromise< Uint8Array >> this._onRenderDone ).fulfil( buffer8 );
-          }
-        } else if ( typelessMsg.type === 'bvh_done' ) {
-          this._numDone++;
-          if ( this._numDone === numWorkers ) {
-            ( <EmptyPromise< number >> this._bvhPromise ).fulfil( 0 );
-          }
-        }
-      } );
-
       let initMsg : MsgC2WInit = { type: 'init', mod, sceneId, pixels: bins[ i ], buffer, width, height, renderType, rayDepth, camera };
-      this._workers[ i ].postMessage( initMsg );
+      workers[ i ].postMessage( initMsg );
     }
   }
 
   // See `Raytracer#render()`
   public render( ): Promise< Uint8Array > {
-    let job = ( ) => {
-      let prevPromise = this._onInitDone;
-      if ( this._onRenderDone ) {
-        prevPromise = this._onRenderDone.promise.then( ( ) => { } );
+    return this._queue.add( ( ) => {
+      if ( this._hasUpdatedCamera ) {
+        let cameraMsg : MsgC2WUpdateCamera = { type: 'update_camera', camera: this._camera };
+        this._workers.send( cameraMsg );
+        this._hasUpdatedCamera = false;
       }
-  
-      return prevPromise.then( ( ) => {
-        this._numDone = 0;
-        this._onRenderDone = new EmptyPromise< Uint8Array >( );
-  
-        if ( this._hasUpdatedCamera ) {
-          let cameraMsg : MsgC2WUpdateCamera = { type: 'update_camera', camera: this._camera };
-          this._postMsg( cameraMsg );
-          this._hasUpdatedCamera = false;
-        }
-  
-        let computeMsg : MsgC2WCompute = { type: 'compute' };
-        this._postMsg( computeMsg );
-  
-        return this._onRenderDone.promise;
-      } );
-    };
-    return this._queue.add( job );
+
+      let computeMsg : MsgC2WCompute = { type: 'compute' };
+      this._workers.send( computeMsg );
+
+      return Promise.all( this._workers.awaitAll( 'compute_done' ) )
+        .then( ( ) => this._buffer8 );
+    } );
   }
 
   // See `Raytracer#updateScene()`
   public updateScene( sceneId : number ): void {
     let msg: MsgC2WUpdateScene = { type: 'update_scene', sceneId };
-    this._postMsg( msg );
+    this._workers.send( msg );
   }
 
   // See `Raytracer#destroy()`
   public destroy( ): void {
-    for ( let i = 0; i < this._workers.length; i++ ) {
-      this._workers[ i ].terminate( );
-    }
-    if ( this._numDone < this._workers.length ) {
-      let dst = new Uint8Array( this._width * this._height * 4 );
-      dst.fill( 255 );
-      ( <EmptyPromise< Uint8Array >> this._onRenderDone ).fulfil( dst );
-    }
+    this._workers.destroy( );
   }
 
   // See `Raytracer#updateParams()`
   public updateParams( renderType : number, maxRayDepth : number ): void {
     let msg : MsgC2WUpdateParams = { type: 'update_params', renderType, maxRayDepth };
-    this._postMsg( msg );
+    this._workers.send( msg );
   }
 
   // See `Raytracer#updateCamera()`
@@ -184,32 +143,44 @@ export class MulticoreRaytracer implements Raytracer {
   // See `Raytracer#storeMesh()`
   public storeMesh( id : number, mesh : Triangles ): void {
     let msg : MsgC2WStoreMesh = { type: 'store_mesh', id, mesh };
-    this._postMsg( msg );
+    this._queue.add( ( ) => {
+      this._workers.send( msg );
+      return Promise.all( this._workers.awaitAll( 'mesh_done' ) );
+    } );
   }
 
   // See `Raytracer#storeTexture()`
   public storeTexture( id : number, texture : Texture ): void {
     let msg : MsgC2WStoreTexture = { type: 'store_texture', id, texture };
-    this._postMsg( msg );
+    this._queue.add( ( ) => {
+      this._workers.send( msg );
+      return Promise.all( this._workers.awaitAll( 'texture_done' ) );
+    } );
   }
 
   // See `Raytracer#rebuildBVH()`
   public rebuildBVH( numBins : number ): Promise< number > {
-    return this._queue.add( ( ) => {
-      this._bvhPromise = new EmptyPromise( );
-      this._numDone = 0;
+    let duration = Number.MAX_SAFE_INTEGER;
+    this._queue.add( ( ) => {
       let startTime = Date.now( );
       let msg : MsgC2WRebuildBVH = { type: 'rebuild_bvh', numBins };
-      this._postMsg( msg );
-      return this._bvhPromise.promise.then( ( ) => Date.now( ) - startTime );
+      this._workers.send1( msg );
+      return this._workers.await1( 'bvh_done' ).then( ( ) => {
+        duration = Date.now( ) - startTime;
+      } );
+    } );
+    return this._queue.add( ( ) => {
+      let msg : MsgC2WRebuildBVH = { type: 'rebuild_bvh', numBins };
+      this._workers.send( msg );
+      return Promise.all( this._workers.awaitAll( 'bvh_done' ) )
+        .then( ( ) => duration );
     } );
   }
 
-  // Sends a message to all the workers
-  private _postMsg( msg : Msg ): void {
-    for ( let i = 0; i < this._workers.length; i++ ) {
-      this._workers[ i ].postMessage( msg );
-    }
+  // See `Raytracer#disableBVH()`
+  public disableBVH( ): void {
+    let msg : MsgC2WDisableBVH = { type: 'disable_bvh' };
+    this._workers.send( msg );
   }
 }
 
@@ -243,4 +214,94 @@ class JobQueue {
       this._isRunning = false;
     }
   }
+}
+
+class WorkerDesc {
+  worker : Worker;
+  queue  : Map< string, [EmptyPromise<any>] >;
+
+  public constructor( worker : Worker ) {
+    this.worker = worker;
+    this.queue  = new Map( );
+  }
+}
+
+class MsgController {
+  private readonly _workers : WorkerDesc[];
+
+  public constructor( workers : Worker[] ) {
+    this._workers = new Array( workers.length );
+    for ( let i = 0; i < workers.length; i++ ) {
+      this._workers[ i ] = new WorkerDesc( workers[ i ] );
+      this._workers[ i ].worker.addEventListener( 'message', ev => {
+        let msg = ev.data;
+        let q = this._workers[ i ].queue.get( msg.type );
+        if ( q ) {
+          let h = <EmptyPromise<any>> q.shift( );
+          h.fulfil( msg );
+        } else {
+          console.error( 'Discarded message', ev.type );
+        }
+      } );
+    }
+  }
+
+  public send( msg : Msg ) {
+    for ( let i = 0; i < this._workers.length; i++ ) {
+      this._workers[ i ].worker.postMessage( msg );
+    }
+  }
+
+  public send1( msg : Msg ) {
+    this._workers[ 0 ].worker.postMessage( msg );
+  }
+
+  public awaitAll< TMsg >( msgType : string ): Promise<TMsg|undefined>[] {
+    let out: Promise< TMsg >[] = [];
+    for ( let i = 0; i < this._workers.length; i++ ) {
+      let w = this._workers[ i ];
+      let newPromise = new EmptyPromise< TMsg >( );
+      if ( w.queue.has( msgType ) ) {
+        let q = <[EmptyPromise<any>]> w.queue.get( msgType );
+        q.push( newPromise );
+      } else {
+        w.queue.set( msgType, [ newPromise ] )
+      }
+      out.push( newPromise.promise );
+    }
+    return out;
+  }
+
+  public await1< TMsg >( msgType : string ): Promise<TMsg|undefined> {
+    let newPromise = new EmptyPromise< TMsg >( );
+    let w = this._workers[ 0 ];
+    if ( w.queue.has( msgType ) ) {
+      let q = <[EmptyPromise<any>]> w.queue.get( msgType );
+      q.push( newPromise );
+    } else {
+      w.queue.set( msgType, [ newPromise ] )
+    }
+    return newPromise.promise;
+  }
+
+  public destroy( ): void {
+    for ( let i = 0; i < this._workers.length; i++ ) {
+      this._workers[ i ].worker.terminate( );
+    }
+    for ( let w of this._workers ) {
+      for ( let [x,ps] of w.queue ) {
+        for ( let p of ps ) {
+          p.fulfil( undefined );
+        }
+      }
+    }
+  }
+}
+
+function anyP< T >( vs : Promise< T >[] ): Promise< T > {
+  return new Promise( ( fResolve, fReject ) => {
+    for ( let v of vs ) {
+      v.then( v => fResolve( v ) )
+    }
+  } );
 }

@@ -22,6 +22,7 @@ handlers.register( 'update_scene',  handleUpdateScene );
 handlers.register( 'store_mesh',    handleStoreMesh );
 handlers.register( 'store_texture', handleStoreTexture );
 handlers.register( 'rebuild_bvh',   handleRebuildBvh );
+handlers.register( 'disable_bvh',   handleDisableBvh );
 
 onmessage = ev => {
   handlers.handle( ev.data );
@@ -104,6 +105,7 @@ function handleStoreMesh( msg : MsgC2WStoreMesh ) {
   let dst = new Float32Array( exps.memory.buffer, ptrVertices, msg.mesh.vertices.length );
   dst.set( msg.mesh.vertices );
   exps.notify_mesh_loaded( msg.id );
+  postMessage( <Msg> { type: 'mesh_done' } ); // TODO
 }
 
 function handleStoreTexture( msg : MsgC2WStoreTexture ) {
@@ -112,10 +114,16 @@ function handleStoreTexture( msg : MsgC2WStoreTexture ) {
   let dst = new Uint8Array( exps.memory.buffer, ptrRgb, msg.texture.width * msg.texture.height * 3 );
   dst.set( msg.texture.data );
   exps.notify_texture_loaded( msg.id );
+  postMessage( <Msg> { type: 'texture_done' } ); // TODO
 }
 
 function handleRebuildBvh( msg : MsgC2WRebuildBVH ) {
   let exps = <any> instance.exports;
   exps.rebuild_bvh( msg.numBins );
   postMessage( <MsgW2CBvhDone> { type: 'bvh_done' } );
+}
+
+function handleDisableBvh( msg : MsgC2WRebuildBVH ) {
+  let exps = <any> instance.exports;
+  exps.disable_bvh( );
 }

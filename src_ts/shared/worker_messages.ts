@@ -56,6 +56,10 @@ export interface MsgC2WRebuildBVH extends Msg {
   numBins : number
 }
 
+export interface MsgC2WDisableBVH extends Msg {
+  type : 'disable_bvh'
+}
+
 export interface MsgC2WCompute extends Msg {
   type : 'compute'
 }

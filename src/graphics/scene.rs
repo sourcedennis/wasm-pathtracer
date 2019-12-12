@@ -47,6 +47,10 @@ impl Scene {
     // }
   }
 
+  pub fn disable_bvh( &mut self ) {
+    self.bvh = None;
+  }
+
   // Casts a shadow ray from the `hit_loc` to all lights in the scene
   // All non-occluded lights are returned by this function
   pub fn shadow_ray( &self, hit_loc : &Vec3, light_id : usize ) -> Option< LightHit > {

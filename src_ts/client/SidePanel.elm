@@ -20,6 +20,7 @@ import Json.Decode     as D
 -- Outgoing ports
 port updateScene           : Int -> Cmd msg
 port updateRenderType      : Int -> Cmd msg
+port updateHasBVH          : Bool -> Cmd msg
 port updateReflectionDepth : Int -> Cmd msg
 port updateRunning         : Bool -> Cmd msg
 port updateMulticore       : Bool -> Cmd msg
@@ -28,7 +29,8 @@ port updateViewport        : (Int, Int) -> Cmd msg
 -- render times: (avg, min, max)
 port updatePerformance     : ( (Int, Int, Int) -> msg ) -> Sub msg
 -- camera properties: (x, y, z, rotX, rotY)
-port updateCamera          : ( Camera -> msg ) -> Sub msg
+-- port updateCamera          : ( Camera -> msg ) -> Sub msg
+port updateBVHTime         : ( Int -> msg ) -> Sub msg
 
 -- The state of the side panel
 type alias Model =
@@ -39,6 +41,8 @@ type alias Model =
   , performanceAvg  : Int
   , performanceMin  : Int
   , performanceMax  : Int
+  , hasBVH          : Bool
+  , bvhTime         : Maybe Int
 
   , width           : Int
   , height          : Int
@@ -56,21 +60,22 @@ type alias Model =
 
 -- Identifiers for the hard-coded scenes
 type Scene
-  = SceneCubeAndSpheres
-  | SceneSimpleBall
-  | SceneAirHole
-  | SceneMesh
-  | SceneTexture
+  = SceneAirHole
+  | SceneCloud100
+  | SceneCloud10k
+  | SceneCloud100k
 
 type RenderType = RenderColor | RenderDepth | RenderBvh
 
 type Msg
   = UpdatePerformance Int Int Int -- render times: avg min max
   | UpdateCamera Camera
+  | UpdateBVHTime Int -- construction time in ms
   | SelectScene Scene
   | SelectType RenderType
   | SelectReflectionDepth Int
   | SelectMulticore Bool
+  | SelectBVH Bool
   | SelectRunning Bool -- Play/Pause (Play=True)
   | ChangeWidth Int
   | ChangeHeight Int
@@ -98,27 +103,29 @@ main =
 sceneId : Scene -> Int
 sceneId s =
   case s of
-    SceneCubeAndSpheres -> 0
-    SceneSimpleBall     -> 1
-    SceneAirHole        -> 2
-    SceneMesh           -> 3
-    SceneTexture        -> 4
+    SceneAirHole        -> 0
+    SceneCloud100       -> 1
+    SceneCloud10k       -> 2
+    SceneCloud100k      -> 3
     
 subscriptions : Model -> Sub Msg
 subscriptions _ =
   Sub.batch
     [ updatePerformance <| \(x,y,z) -> UpdatePerformance x y z
-    , updateCamera <| \x -> UpdateCamera x
+    -- , updateCamera <| \x -> UpdateCamera x
+    , updateBVHTime <| \x -> UpdateBVHTime x
     ]
 
 init : Model
 init =
-  { scene           = SceneCubeAndSpheres
+  { scene           = SceneAirHole
   , renderType      = RenderColor
   , reflectionDepth = 1
   , performanceAvg  = 0
   , performanceMin  = 0
   , performanceMax  = 0
+  , hasBVH          = True
+  , bvhTime         = Nothing
   , width           = 512
   , height          = 512
   , sentWidth       = 512
@@ -135,6 +142,8 @@ update msg model =
       ( { model | performanceAvg = avg, performanceMin = low, performanceMax = high }, Cmd.none )
     UpdateCamera c ->
       ( { model | camera = c }, Cmd.none )
+    UpdateBVHTime t ->
+      ( { model | bvhTime = Just t }, Cmd.none )
     SelectScene s ->
       ( { model | scene = s }, updateScene (sceneId s) )
     SelectType t ->
@@ -149,6 +158,8 @@ update msg model =
       ( { model | reflectionDepth = t }, updateReflectionDepth t )
     SelectMulticore b ->
       ( { model | isMulticore = b }, updateMulticore b )
+    SelectBVH b ->
+      ( { model | hasBVH = b, bvhTime = Nothing }, updateHasBVH b )
     SelectRunning b ->
       ( { model | isRunning = b }, updateRunning b )
     ChangeWidth w ->
@@ -180,11 +191,17 @@ view m =
         --     [ class "choice", class "middle", style "width" "160pt", style "border-left" "none", style "border-top" "1px solid white", style "text-align" "left" ]
         --     [ text "Spotlight Torus" ]
         , buttonC (m.scene == SceneAirHole) (SelectScene SceneAirHole)
-            [ class "choice", class "middle", style "width" "160pt", style "border-left" "none", style "border-top" "1px solid white", style "text-align" "left" ]
+            [ class "choice", class "top", style "width" "160pt", style "border-left" "none", style "border-top" "1px solid white", style "text-align" "left" ]
             [ text "Air Hole" ]
-        , buttonC (m.scene == SceneMesh) (SelectScene SceneMesh)
+        , buttonC (m.scene == SceneCloud100) (SelectScene SceneCloud100)
             [ class "choice", class "middle", style "width" "160pt", style "border-left" "none", style "border-top" "1px solid white", style "text-align" "left" ]
-            [ text ".obj Mesh" ]
+            [ text "Cloud 100" ]
+        , buttonC (m.scene == SceneCloud10k) (SelectScene SceneCloud10k)
+            [ class "choice", class "middle", style "width" "160pt", style "border-left" "none", style "border-top" "1px solid white", style "text-align" "left" ]
+            [ text "Cloud 10k" ]
+        , buttonC (m.scene == SceneCloud100k) (SelectScene SceneCloud100k)
+            [ class "choice", class "bottom", style "width" "160pt", style "border-left" "none", style "border-top" "1px solid white", style "text-align" "left" ]
+            [ text "Cloud 100k" ]
         -- , buttonC (m.scene == SceneTexture) (SelectScene SceneTexture)
         --     [ class "choice", class "bottom", style "width" "160pt", style "text-align" "left" ]
         --     [ text "Whitted Turner's Scene" ]
@@ -244,14 +261,20 @@ view m =
         ]
     , div []
         [ span [] [ text "BVH" ]
-        , buttonC (not m.isMulticore) (SelectMulticore False)
+        , buttonC m.hasBVH (SelectBVH True)
             [ class "choice", class "left", style "width" "90pt" ]
             [ text "Enabled" ]
-        , buttonC m.isMulticore (SelectMulticore True)
+        , buttonC (not m.hasBVH) (SelectBVH False)
             [ class "choice", class "right", style "width" "90pt" ]
             [ text "Disabled" ]
         , div []
-            [ span [] [ text "Build time: ", text "100ms" ] ]
+            [ span []
+                [ text "Build time: "
+                , case m.bvhTime of
+                    Just t -> text ( fromInt t ++ "ms" )
+                    Nothing -> text "- ms"
+                ]
+            ]
         ]
     , div []
         [ span [] [ text "Viewport" ]

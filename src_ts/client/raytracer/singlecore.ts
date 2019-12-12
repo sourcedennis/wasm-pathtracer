@@ -115,6 +115,14 @@ export class SinglecoreRaytracer implements Raytracer {
     } );
   }
 
+  // See `Raytracer#disableBVH()`
+  public disableBVH( ): void {
+    this._ins.then( ins => {
+      let exps = <any> ins.exports;
+      exps.disable_bvh( );
+    } );
+  }
+
   // See `Raytracer#storeMesh()`
   public storeMesh( id : number, mesh : Triangles ): void {
     this._ins.then( ins => {

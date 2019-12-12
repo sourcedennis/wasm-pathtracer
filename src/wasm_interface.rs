@@ -9,7 +9,7 @@ use crate::graphics::ray::{Ray};
 use crate::graphics::{Mesh};
 use crate::graphics::{Texture};
 use crate::math::{Vec3};
-use crate::scenes::{setup_scene, setup_scene_ball, setup_scene_cubesphere, setup_scene_obj, setup_scene_texture};
+use crate::scenes::{setup_scene_cubesphere, setup_scene_cloud100, setup_scene_cloud10k, setup_scene_cloud100k};
 use crate::tracer::{MatRefract, Camera, trace_original_color, trace_original_depth, trace_original_bvh};
 
 // This file contains all the functions that are exposed through WebAssembly
@@ -287,9 +287,10 @@ pub fn mesh_vertices( id : u32 ) -> *mut Vec3 {
 pub fn notify_mesh_loaded( id : u32 ) -> bool {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
-      // Scene 3 is the scene with the external mesh
-      // If that's the case, then reload the scene
-      if conf.scene_id == 3 {
+      // Scene 1 uses mesh 0. Scene 2 uses mesh 1. Scene 3 uses mesh 2
+      if ( id == 0 && conf.scene_id == 1 ) ||
+         ( id == 1 && conf.scene_id == 2 ) ||
+         ( id == 2 && conf.scene_id == 3 ) {
         conf.scene = select_scene( conf.scene_id, &conf.meshes, &conf.textures );
         true
       } else {
@@ -329,13 +330,7 @@ pub fn allocate_texture( id : u32, width : u32, height : u32 ) -> *mut (u8,u8,u8
 pub fn notify_texture_loaded( id : u32 ) -> bool {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
-      // Scene 4 is whitted's scene
-      if conf.scene_id == 4 {
-        conf.scene = select_scene( conf.scene_id, &conf.meshes, &conf.textures );
-        true
-      } else {
-        false
-      }
+      false
     } else {
       panic!( "init not called" )
     }
@@ -347,6 +342,17 @@ pub fn rebuild_bvh( num_bins : u32 ) {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
       conf.scene.rebuild_bvh( num_bins as usize )
+    } else {
+      panic!( "init not called" )
+    }
+  }
+}
+
+#[wasm_bindgen]
+pub fn disable_bvh( ) {
+  unsafe {
+    if let Some( ref mut conf ) = CONFIG {
+      conf.scene.disable_bvh( );
     } else {
       panic!( "init not called" )
     }
@@ -425,11 +431,10 @@ fn select_scene( id       : u32
                , textures : &HashMap< u32, Texture >
                ) -> Scene {
   match id {
-    0 => setup_scene( ),
-    1 => setup_scene_ball( ),
-    2 => setup_scene_cubesphere( ),
-    3 => setup_scene_obj( meshes ),
-    4 => setup_scene_texture( textures ),
+    0 => setup_scene_cubesphere( ),
+    1 => setup_scene_cloud100( meshes ),
+    2 => setup_scene_cloud10k( meshes ),
+    3 => setup_scene_cloud100k( meshes ),
     _ => panic!( "Invalid scene" )
   }
 }
