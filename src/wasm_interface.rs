@@ -4,13 +4,17 @@ use wasm_bindgen::prelude::*;
 use std::collections::HashMap;
 // Local imports
 use crate::data::cap_stack::{Stack};
-use crate::graphics::scene::{Scene};
-use crate::graphics::ray::{Ray};
-use crate::graphics::{Mesh};
-use crate::graphics::{Texture};
+use crate::graphics::{Scene, MarchScene};
+use crate::graphics::ray::{Ray, Marchable};
+use crate::graphics::{Mesh, Texture, Color3};
 use crate::math::{Vec3};
-use crate::scenes::{setup_scene_cubesphere, setup_scene_cloud100, setup_scene_cloud10k, setup_scene_cloud100k};
+use crate::scenes::{setup_scene_cubesphere, setup_scene_cloud100, setup_scene_cloud10k, setup_scene_cloud100k, setup_scene_march};
 use crate::tracer::{MatRefract, Camera, trace_original_color, trace_original_depth, trace_original_bvh};
+use crate::marcher::{march_original_color, march_original_depth};
+
+use crate::math::{EPSILON};
+use crate::graphics::{Material};
+use crate::graphics::primitives::{Sphere};
 
 // This file contains all the functions that are exposed through WebAssembly
 // Interfacing with JavaScript is a bit annoying, as only primitives (i32, i64, f32, f64)
@@ -43,6 +47,11 @@ impl RenderType {
   }
 }
 
+enum SceneEnum {
+  Trace( Scene ),
+  March( MarchScene )
+}
+
 /// The state of a rendering session
 ///   (Sessions change upon framebuffer resize)
 struct Config {
@@ -62,7 +71,7 @@ struct Config {
   rays            : Vec< Ray >,
   num_rays        : u32,
   scene_id        : u32,
-  scene           : Scene,
+  scene           : SceneEnum,
   max_ray_depth   : u32,
   camera          : Camera,
 
@@ -78,6 +87,7 @@ static mut CONFIG : Option< Config > = None;
 
 /// Initialises the *Session State*.
 #[wasm_bindgen]
+#[allow(dead_code)]
 pub fn init( width : u32, height : u32, scene_id : u32, render_type : u32, max_ray_depth : u32
            , cam_x : f32, cam_y : f32, cam_z : f32, cam_rot_x : f32, cam_rot_y : f32 ) {
   unsafe {
@@ -136,6 +146,7 @@ pub fn init( width : u32, height : u32, scene_id : u32, render_type : u32, max_r
 /// This buffer is always of size `viewport_width * viewport_height`, but only the assigned
 ///   pixels are filled in.
 #[wasm_bindgen]
+#[allow(dead_code)]
 pub fn results( ) -> *const u8 {
   unsafe {
     if let Some( ref conf ) = CONFIG {
@@ -150,6 +161,7 @@ pub fn results( ) -> *const u8 {
 // JavaScript fills it with the pixel locations that the raytracer should execute
 //   (Such that pixels can be distributed over different workers running this raytracer)
 #[wasm_bindgen]
+#[allow(dead_code)]
 pub fn ray_store( num_rays : u32 ) -> *mut (u32, u32) {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
@@ -164,6 +176,7 @@ pub fn ray_store( num_rays : u32 ) -> *mut (u32, u32) {
 // After JavaScript has assigned the pixels, the original rays are *precomputed*
 // This improves performance when the camera does not move
 #[wasm_bindgen]
+#[allow(dead_code)]
 pub fn ray_store_done( ) {
   unsafe {
     if let Some( ref conf ) = CONFIG {
@@ -203,6 +216,7 @@ pub fn ray_store_done( ) {
 /// Updates the rendering session with new parameters
 /// Other aspects of the session remain the same
 #[wasm_bindgen]
+#[allow(dead_code)]
 pub fn update_params( render_type : u32, max_ray_depth : u32 ) {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
@@ -218,6 +232,7 @@ pub fn update_params( render_type : u32, max_ray_depth : u32 ) {
 /// Updates the rendered scene
 /// Other aspects of the session remain the same
 #[wasm_bindgen]
+#[allow(dead_code)]
 pub fn update_scene( scene_id : u32 ) {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
@@ -233,6 +248,7 @@ pub fn update_scene( scene_id : u32 ) {
 /// Other aspects of the session remain the same
 /// Note that the camera first rotates around the x-axis, then around the y-axis, then it translates
 #[wasm_bindgen]
+#[allow(dead_code)]
 pub fn update_camera( cam_x : f32, cam_y : f32, cam_z : f32, cam_rot_x : f32, cam_rot_y : f32 ) {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
@@ -252,6 +268,7 @@ pub fn update_camera( cam_x : f32, cam_y : f32, cam_z : f32, cam_rot_x : f32, ca
 //
 // This is the first stage
 #[wasm_bindgen]
+#[allow(dead_code)]
 pub fn allocate_mesh( id : u32, num_vertices : u32 ) {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
@@ -267,6 +284,7 @@ pub fn allocate_mesh( id : u32, num_vertices : u32 ) {
 
 // Obtains a pointer to the mesh vertices
 #[wasm_bindgen]
+#[allow(dead_code)]
 pub fn mesh_vertices( id : u32 ) -> *mut Vec3 {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
@@ -284,6 +302,7 @@ pub fn mesh_vertices( id : u32 ) -> *mut Vec3 {
 // Notifies the raytracer that all the mesh vertices are placed in WASM
 // memory. Returns `true` if a scene with the loaded mesh is currently rendering
 #[wasm_bindgen]
+#[allow(dead_code)]
 pub fn notify_mesh_loaded( id : u32 ) -> bool {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
@@ -305,6 +324,7 @@ pub fn notify_mesh_loaded( id : u32 ) -> bool {
 // Allocates a texture identifier by the provided `id` with the provided size
 // Returns a pointer to the u8 RGB store location
 #[wasm_bindgen]
+#[allow(dead_code)]
 pub fn allocate_texture( id : u32, width : u32, height : u32 ) -> *mut (u8,u8,u8) {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
@@ -327,9 +347,10 @@ pub fn allocate_texture( id : u32, width : u32, height : u32 ) -> *mut (u8,u8,u8
 // Notifies the raytracer that the texture RGB data has been put into WASM's
 // memory. If the current scene is using that texture, the scene is updated
 #[wasm_bindgen]
-pub fn notify_texture_loaded( id : u32 ) -> bool {
+#[allow(dead_code)]
+pub fn notify_texture_loaded( _id : u32 ) -> bool {
   unsafe {
-    if let Some( ref mut conf ) = CONFIG {
+    if let Some( ref mut _conf ) = CONFIG {
       false
     } else {
       panic!( "init not called" )
@@ -338,10 +359,15 @@ pub fn notify_texture_loaded( id : u32 ) -> bool {
 }
 
 #[wasm_bindgen]
+#[allow(dead_code)]
 pub fn rebuild_bvh( num_bins : u32 ) {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
-      conf.scene.rebuild_bvh( num_bins as usize )
+      match conf.scene {
+        SceneEnum::Trace( ref mut s ) =>
+          s.rebuild_bvh( num_bins as usize ),
+        SceneEnum::March( ref mut s ) => { }
+      }
     } else {
       panic!( "init not called" )
     }
@@ -349,10 +375,15 @@ pub fn rebuild_bvh( num_bins : u32 ) {
 }
 
 #[wasm_bindgen]
+#[allow(dead_code)]
 pub fn disable_bvh( ) {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
-      conf.scene.disable_bvh( );
+      match conf.scene {
+        SceneEnum::Trace( ref mut s ) =>
+          s.disable_bvh( ),
+        SceneEnum::March( ref mut s ) => { }
+      }
     } else {
       panic!( "init not called" )
     }
@@ -363,13 +394,14 @@ pub fn disable_bvh( ) {
 /// Note that it only traces rays whose pixels are assigned to this instance.
 ///   (in multi-threading different instances are assigned different pixels)
 #[wasm_bindgen]
+#[allow(dead_code)]
 pub fn compute( ) {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
       // These two loops are extracted (instead of checking for `is_depth` in the body),
       //   because I'm unsure whether the compiler hoists this. So, I hoist it.
       match conf.render_type {
-        RenderType::RenderBVH => compute_bvh( conf ),
+        RenderType::RenderBVH   => compute_bvh( conf ),
         RenderType::RenderColor => compute_color( conf ),
         RenderType::RenderDepth => compute_depth( conf )
       }
@@ -381,28 +413,60 @@ pub fn compute( ) {
 
 /// Traces rays to obtain a depth buffer of the scene (for assigned pixels)
 fn compute_depth( conf : &mut Config ) {
-  for i in 0..(conf.num_rays as usize) {
-    let (x, y) = conf.pixel_coords[ i ];
-
-    let res = trace_original_depth( &conf.scene, &conf.rays[ i ] );
-
-    conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
-    conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
-    conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
-    conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
+  match conf.scene {
+    SceneEnum::Trace( ref s ) => {
+      for i in 0..(conf.num_rays as usize) {
+        let (x, y) = conf.pixel_coords[ i ];
+    
+        let res = trace_original_depth( s, &conf.rays[ i ] );
+    
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
+      }
+    },
+    SceneEnum::March( ref s ) => {
+      for i in 0..(conf.num_rays as usize) {
+        let (x, y) = conf.pixel_coords[ i ];
+    
+        let res = march_original_depth( s, &conf.rays[ i ] );
+    
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
+      }
+    }
   }
 }
 
 fn compute_bvh( conf : &mut Config ) {
-  for i in 0..(conf.num_rays as usize) {
-    let (x, y) = conf.pixel_coords[ i ];
+  match conf.scene {
+    SceneEnum::Trace( ref s ) => {
+      for i in 0..(conf.num_rays as usize) {
+        let (x, y) = conf.pixel_coords[ i ];
+    
+        let res = trace_original_bvh( s, &conf.rays[ i ] );
+    
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
+      }
+    },
+    SceneEnum::March( ref s ) => {
+      for i in 0..(conf.num_rays as usize) {
+        let (x, y) = conf.pixel_coords[ i ];
 
-    let res = trace_original_bvh( &conf.scene, &conf.rays[ i ] );
+        let res = Color3::BLACK;
 
-    conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
-    conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
-    conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
-    conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
+      }
+    }
   }
 }
 
@@ -410,16 +474,33 @@ fn compute_bvh( conf : &mut Config ) {
 fn compute_color( conf : &mut Config ) {
   let mat_stack = &mut conf.mat_stack;
 
-  for i in 0..(conf.num_rays as usize) {
-    let (x, y) = conf.pixel_coords[ i ];
-
-    // Note that `mat_stack` already contains the "material" for air (so now it's a stack of air)
-    let res = trace_original_color( &conf.scene, &conf.rays[ i ], conf.max_ray_depth, mat_stack );
-
-    conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
-    conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
-    conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
-    conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
+  match conf.scene {
+    SceneEnum::Trace( ref s ) => {
+      for i in 0..(conf.num_rays as usize) {
+        let (x, y) = conf.pixel_coords[ i ];
+    
+        // Note that `mat_stack` already contains the "material" for air (so now it's a stack of air)
+        let res = trace_original_color( s, &conf.rays[ i ], conf.max_ray_depth, mat_stack );
+    
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
+      }
+    },
+    SceneEnum::March( ref s ) => {
+      for i in 0..(conf.num_rays as usize) {
+        let (x, y) = conf.pixel_coords[ i ];
+  
+        // Note that `mat_stack` already contains the "material" for air (so now it's a stack of air)
+        let res = march_original_color( s, &conf.rays[ i ] );
+    
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
+      }
+    }
   }
 }
 
@@ -428,13 +509,14 @@ fn compute_color( conf : &mut Config ) {
 //   are passed along as well
 fn select_scene( id       : u32
                , meshes   : &HashMap< u32, Mesh >
-               , textures : &HashMap< u32, Texture >
-               ) -> Scene {
+               , _textures : &HashMap< u32, Texture >
+               ) -> SceneEnum {
   match id {
-    0 => setup_scene_cubesphere( ),
-    1 => setup_scene_cloud100( meshes ),
-    2 => setup_scene_cloud10k( meshes ),
-    3 => setup_scene_cloud100k( meshes ),
+    0 => SceneEnum::Trace( setup_scene_cubesphere( ) ),
+    1 => SceneEnum::Trace( setup_scene_cloud100( meshes ) ),
+    2 => SceneEnum::Trace( setup_scene_cloud10k( meshes ) ),
+    3 => SceneEnum::Trace( setup_scene_cloud100k( meshes ) ),
+    4 => SceneEnum::March( setup_scene_march( ) ),
     _ => panic!( "Invalid scene" )
   }
 }

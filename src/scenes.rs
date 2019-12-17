@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use std::f32::consts::PI;
 use std::rc::Rc;
 // Local imports
-use crate::graphics::{ Color3, Material, Scene, Texture };
+use crate::graphics::{ Color3, Material, Scene, MarchScene, Texture };
 use crate::graphics::lights::Light;
 use crate::graphics::primitives::{ AARect, Plane, Sphere, Triangle, Square, Torus };
-use crate::graphics::ray::{ Tracable };
+use crate::graphics::ray::{ Tracable, Marchable };
 use crate::graphics::Mesh;
 use crate::math::Vec3;
 use crate::math;
@@ -100,6 +100,16 @@ fn display_obj( meshes : &HashMap< u32, Mesh >, mesh_id : u32 ) -> Scene {
   }
 
   Scene::new( Color3::BLACK, vec![ light ], shapes )
+}
+
+pub fn setup_scene_march( ) -> MarchScene {
+  let light = Light::point( Vec3::new( 0.0, 6.0, 2.0 ), Color3::new( 0.7, 0.7, 0.7 ), 50.0 );
+
+  let mut shapes : Vec< Rc< dyn Marchable > > = Vec::new( );
+
+  shapes.push( Rc::new( Sphere::new( Vec3::new( 0.0, 0.0, 10.0 ), 1.0, Material::reflect( Color3::new( 0.0, 1.0, 0.0 ), 0.2 ) ) ) );
+
+  MarchScene::new( Color3::BLACK, vec![ light ], shapes )
 }
 
 // Turner Whitted's scene

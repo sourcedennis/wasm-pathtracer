@@ -40,7 +40,7 @@ class Config {
     this.width            = 512;
     this.height           = 512;
     this.isRunning        = true;
-    this.isMulticore      = false;
+    this.isMulticore      = true;
     this.rayDepth         = 1;
     this.renderType       = 0; // 0=color
     this.sceneId          = 0;

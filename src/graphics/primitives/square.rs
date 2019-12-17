@@ -1,6 +1,6 @@
 use crate::math::{Vec2, Vec3};
 use crate::graphics::Material;
-use crate::graphics::ray::{Ray, Tracable, Hit};
+use crate::graphics::ray::{Ray, Tracable, Bounded, Hit};
 use crate::graphics::AABB;
 
 /// A finite square plane in 3d
@@ -18,6 +18,27 @@ pub struct Square {
 impl Square {
   pub fn new( location : Vec3, size : f32, mat : Material ) -> Square {
     Square { location, size, mat }
+  }
+}
+
+impl Bounded for Square {
+  fn location( &self ) -> Option< Vec3 > {
+    Some( self.location )
+  }
+
+  fn aabb( &self ) -> Option< AABB > {
+    let l = self.location;
+    let hsize = self.size * 0.5;
+
+    Some( AABB::new1(
+        l.x - hsize
+      , l.y
+      , l.z - hsize
+      , l.x + hsize
+      , l.y
+      , l.z + hsize
+      )
+    )
   }
 }
 
@@ -65,24 +86,5 @@ impl Tracable for Square {
       };
     
     Some( Hit::new( t, normal, mat, true ) )
-  }
-
-  fn location( &self ) -> Option< Vec3 > {
-    Some( self.location )
-  }
-
-  fn aabb( &self ) -> Option< AABB > {
-    let l = self.location;
-    let hsize = self.size * 0.5;
-
-    Some( AABB::new1(
-        l.x - hsize
-      , l.y
-      , l.z - hsize
-      , l.x + hsize
-      , l.y
-      , l.z + hsize
-      )
-    )
   }
 }

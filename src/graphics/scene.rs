@@ -120,10 +120,6 @@ impl Scene {
     }
   }
 
-  // pub fn trace_bvh_depth( &self, ray : &Ray ) -> usize {
-
-  // }
-
   fn trace_g< 'a >( &'a self, ray : &Ray ) -> (usize, Option< (f32, &'a Rc< dyn Tracable >) >) {
     if let Some( ( numinf, bvh ) ) = &self.bvh {
       if let Some( h1 ) = trace_shapes( ray, &self.shapes[..*numinf] ) {

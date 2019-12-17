@@ -131,7 +131,7 @@ init =
   , sentWidth       = 512
   , sentHeight      = 512
   , camera          = { x = 0, y = 0, z = 0, rotX = 0, rotY = 0 }
-  , isMulticore     = False
+  , isMulticore     = True
   , isRunning       = True
   }
 

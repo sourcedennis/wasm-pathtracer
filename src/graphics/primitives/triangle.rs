@@ -1,6 +1,6 @@
 use crate::math::{Vec2, Vec3, EPSILON};
 use crate::graphics::Material;
-use crate::graphics::ray::{Ray, Tracable, Hit};
+use crate::graphics::ray::{Ray, Tracable, Bounded, Hit};
 use crate::graphics::AABB;
 
 /// A triangle in 3-dimensional space
@@ -29,6 +29,28 @@ fn is_approx_left_of( v0 : Vec3, v1 : Vec3, n : Vec3, p : Vec3 ) -> bool {
   let edge = v1 - v0;
   let v0p = p - v0;
   return n.dot( edge.cross( v0p ) ) + EPSILON >= 0.0;
+}
+
+impl Bounded for Triangle {
+  fn aabb( &self ) -> Option< AABB > {
+    let x_min = self.v0.x.min( self.v1.x ).min( self.v2.x );
+    let y_min = self.v0.y.min( self.v1.y ).min( self.v2.y );
+    let z_min = self.v0.z.min( self.v1.z ).min( self.v2.z );
+
+    let x_max = self.v0.x.max( self.v1.x ).max( self.v2.x );
+    let y_max = self.v0.y.max( self.v1.y ).max( self.v2.y );
+    let z_max = self.v0.z.max( self.v1.z ).max( self.v2.z );
+
+    Some( AABB::new1(
+        x_min
+      , y_min
+      , z_min
+      , x_max
+      , y_max
+      , z_max
+      )
+    )
+  }
 }
 
 impl Tracable for Triangle {
@@ -107,33 +129,5 @@ impl Tracable for Triangle {
     } else {
       None
     }
-  }
-
-  fn location( &self ) -> Option< Vec3 > {
-    if let Some( b ) = self.aabb( ) {
-      Some( b.center( ) )
-    } else {
-      None
-    }
-  }
-
-  fn aabb( &self ) -> Option< AABB > {
-    let mut x_min = self.v0.x.min( self.v1.x ).min( self.v2.x );
-    let mut y_min = self.v0.y.min( self.v1.y ).min( self.v2.y );
-    let mut z_min = self.v0.z.min( self.v1.z ).min( self.v2.z );
-
-    let mut x_max = self.v0.x.max( self.v1.x ).max( self.v2.x );
-    let mut y_max = self.v0.y.max( self.v1.y ).max( self.v2.y );
-    let mut z_max = self.v0.z.max( self.v1.z ).max( self.v2.z );
-
-    Some( AABB::new1(
-        x_min
-      , y_min
-      , z_min
-      , x_max
-      , y_max
-      , z_max
-      )
-    )
   }
 }

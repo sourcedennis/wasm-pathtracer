@@ -3,7 +3,7 @@ use roots::{find_roots_quartic, Roots, FloatType};
 // Local imports
 use crate::math::{Vec2, Vec3};
 use crate::graphics::Material;
-use crate::graphics::ray::{Ray, Tracable, Hit};
+use crate::graphics::ray::{Ray, Tracable, Bounded, Hit};
 use crate::graphics::AABB;
 
 // A torus that lies flat; that is, its gap lies in the x/z-plane
@@ -18,6 +18,33 @@ pub struct Torus {
 impl Torus {
   pub fn new( location : Vec3, big_r : f32, small_r : f32, mat : Material ) -> Torus {
     Torus { location, big_r, small_r, mat }
+  }
+}
+
+impl Bounded for Torus {
+  fn location( &self ) -> Option< Vec3 > {
+    Some( self.location )
+  }
+
+  fn aabb( &self ) -> Option< AABB > {
+    let r = self.big_r + self.small_r;
+
+    let x_min = self.location.x - r;
+    let x_max = self.location.x + r;
+    let y_min = self.location.y - self.small_r;
+    let y_max = self.location.y + self.small_r;
+    let z_min = self.location.z - r;
+    let z_max = self.location.z + r;
+
+    Some( AABB::new1(
+        x_min
+      , y_min
+      , z_min
+      , x_max
+      , y_max
+      , z_max
+      )
+    )
   }
 }
 
@@ -87,31 +114,6 @@ impl Tracable for Torus {
         Some( Hit::new( closest as f32, n, self.mat.evaluate_at( &Vec2::ZERO ), true ) )
       }
     }
-  }
-
-  fn location( &self ) -> Option< Vec3 > {
-    Some( self.location )
-  }
-
-  fn aabb( &self ) -> Option< AABB > {
-    let r = self.big_r + self.small_r;
-
-    let x_min = self.location.x - r;
-    let x_max = self.location.x + r;
-    let y_min = self.location.y - self.small_r;
-    let y_max = self.location.y + self.small_r;
-    let z_min = self.location.z - r;
-    let z_max = self.location.z + r;
-
-    Some( AABB::new1(
-        x_min
-      , y_min
-      , z_min
-      , x_max
-      , y_max
-      , z_max
-      )
-    )
   }
 }
 

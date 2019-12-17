@@ -1,6 +1,6 @@
 use crate::math::{Vec2, Vec3};
 use crate::graphics::Material;
-use crate::graphics::ray::{Ray, Tracable, Hit};
+use crate::graphics::ray::{Ray, Tracable, Bounded, Hit};
 use crate::graphics::AABB;
 
 /// An axis-aligned box
@@ -33,6 +33,28 @@ impl AARect {
     , center.z - half_len
     , center.z + half_len
     , mat
+    )
+  }
+}
+
+impl Bounded for AARect {
+  fn location( &self ) -> Option< Vec3 > {
+    Some( Vec3::new(
+      0.5 * ( self.x_min + self.x_max )
+    , 0.5 * ( self.y_min + self.y_max )
+    , 0.5 * ( self.z_min + self.z_max )
+    ) )
+  }
+
+  fn aabb( &self ) -> Option< AABB > {
+    Some( AABB::new1(
+        self.x_min
+      , self.y_min
+      , self.z_min
+      , self.x_max
+      , self.y_max
+      , self.z_max
+      )
     )
   }
 }
@@ -140,25 +162,5 @@ impl Tracable for AARect {
     } else { // Box behind camera
       None
     }
-  }
-
-  fn location( &self ) -> Option< Vec3 > {
-    Some( Vec3::new(
-      0.5 * ( self.x_min + self.x_max )
-    , 0.5 * ( self.y_min + self.y_max )
-    , 0.5 * ( self.z_min + self.z_max )
-    ) )
-  }
-
-  fn aabb( &self ) -> Option< AABB > {
-    Some( AABB::new1(
-        self.x_min
-      , self.y_min
-      , self.z_min
-      , self.x_max
-      , self.y_max
-      , self.z_max
-      )
-    )
   }
 }

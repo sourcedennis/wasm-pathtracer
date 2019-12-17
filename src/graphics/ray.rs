@@ -1,6 +1,5 @@
 use crate::math::Vec3;
-use crate::graphics::{PointMaterial};
-use crate::graphics::{AABB};
+use crate::graphics::{PointMaterial, AABB, Color3};
 use std::fmt;
 
 // A module with `Ray` and `Hit` structures, that are useful for raytracing
@@ -57,8 +56,22 @@ impl Hit {
   }
 }
 
+pub trait Bounded : fmt::Debug {
+  fn location( &self ) -> Option< Vec3 > {
+    if let Some( b ) = self.aabb( ) {
+      Some( b.center( ) )
+    } else {
+      None
+    }
+  }
+
+  // Returns None if the primitive has no bounding-box, which happens when it is
+  // infinite. (Such as planes)
+  fn aabb( &self ) -> Option< AABB >;
+}
+
 /// A trait for physical objects, with which a ray of light can be intersected
-pub trait Tracable : fmt::Debug {
+pub trait Tracable : Bounded {
   /// Traces a ray with limited properties evaluated at the hit.
   /// That is, no normal or materials are included. Only its distance from the
   ///   ray origin.
@@ -73,10 +86,10 @@ pub trait Tracable : fmt::Debug {
   /// Traces a ray. At the hit point the normal and material are evaluated and
   ///   included in the returned hit.
   fn trace( &self, ray : &Ray ) -> Option< Hit >;
+}
 
-  fn location( &self ) -> Option< Vec3 >;
+pub trait Marchable : Bounded {
+  fn sdf( &self, p : &Vec3 ) -> f32;
 
-  // Returns None if the primitive has no bounding-box, which happens when it is
-  // infinite. (Such as planes)
-  fn aabb( &self ) -> Option< AABB >;
+  fn color( &self, p : &Vec3 ) -> Color3;
 }
