@@ -41,7 +41,7 @@ impl Scene {
   // Constructs a new scene with the specified lights and shapes
   pub fn new( background : Color3
             , lights     : Vec< Light >
-            , mut shapes : Vec< Rc< dyn Tracable > >
+            , shapes : Vec< Rc< dyn Tracable > >
             ) -> Scene {
     Scene { background, lights, bvh: None, shapes }
   }

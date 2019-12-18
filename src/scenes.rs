@@ -10,6 +10,7 @@ use crate::graphics::ray::{ Tracable, Marchable };
 use crate::graphics::Mesh;
 use crate::math::Vec3;
 use crate::math;
+use crate::graphics::march_ops::Difference;
 
 static MESH_BUNNY_LOW  : u32 = 0;
 static MESH_BUNNY_HIGH : u32 = 1;
@@ -97,23 +98,17 @@ fn display_obj( meshes : &HashMap< u32, Mesh >, mesh_id : u32 ) -> Scene {
   let light = Light::point( Vec3::new( 0.0, 6.0, 2.0 ), Color3::new( 0.7, 0.7, 0.7 ), 50.0 );
   let light2 = Light::point( Vec3::new( 0.0, 10.0, 12.0 ), Color3::new( 0.8, 0.8, 0.8 ), 30.0 );
 
-  let mat = Material::diffuse( Color3::new( 1.0, 0.4, 0.4 ) );
-
   let shapes : Vec< Rc< dyn Tracable > > =
-    if let Some( mesh ) = meshes.get( &mesh_id ) {
-      let num_triangles = mesh.vertices.len( ) / 3;
-
+    if let Some( Mesh::Triangled( ts ) ) = meshes.get( &mesh_id ) {
+      let num_triangles = ts.len( );
       let mut shapes : Vec< Rc< dyn Tracable > > = Vec::with_capacity( num_triangles + 2 );
       shapes.push( Rc::new( Plane::new( Vec3::new( 0.0, -1.0, 0.0 ), Vec3::new( 0.0, 1.0, 0.0 ), Material::reflect( Color3::new( 1.0, 1.0, 1.0 ), 0.1 ) ) ) );
       shapes.push( Rc::new( Plane::new( Vec3::new( 0.0, 0.0, 13.0 ), Vec3::new( 0.0, 0.0, -1.0 ), Material::diffuse( Color3::new( 1.0, 1.0, 1.0 ) ) ) ) );
-
-      for i in 0..num_triangles {
-        let mut triangle =
-          Triangle::new( mesh.vertices[ i * 3 + 0 ] * 0.5, mesh.vertices[ i * 3 + 1 ] * 0.5, mesh.vertices[ i * 3 + 2 ] * 0.5
-                       , mat.clone( ) );
-        triangle = triangle.translate( Vec3::new( 0.0, 0.0, 5.0 ) );
-        shapes.push( Rc::new( triangle ) );
+      
+      for t in ts {
+        shapes.push( t.clone( ) );
       }
+
       shapes
     } else {
       let mut shapes : Vec< Rc< dyn Tracable > > = Vec::new( );
@@ -126,13 +121,23 @@ fn display_obj( meshes : &HashMap< u32, Mesh >, mesh_id : u32 ) -> Scene {
 }
 
 pub fn setup_scene_march( ) -> MarchScene {
-  let light = Light::point( Vec3::new( 0.0, 6.0, 2.0 ), Color3::new( 0.7, 0.7, 0.7 ), 50.0 );
+  let light1 = Light::point( Vec3::new(  4.0, 3.0, 9.0 ), Color3::new( 0.7, 0.7, 0.7 ), 20.0 );
+  let light2 = Light::point( Vec3::new( -4.0, 3.0, 9.0 ), Color3::new( 0.7, 0.7, 0.7 ), 20.0 );
 
   let mut shapes : Vec< Rc< dyn Marchable > > = Vec::new( );
 
-  shapes.push( Rc::new( Sphere::new( Vec3::new( 0.0, 0.0, 10.0 ), 1.0, Material::reflect( Color3::new( 0.0, 1.0, 0.0 ), 0.2 ) ) ) );
+  {
+    let s1 = Sphere::new( Vec3::new( 0.0, 0.0, 10.0 ), 1.0, Material::diffuse( Color3::new( 0.0, 1.0, 0.0 ) ) );
+    let s2 = Sphere::new( Vec3::new( 0.7, 0.0, 10.0 ), 1.0, Material::diffuse( Color3::new( 0.0, 0.0, 1.0 ) ) );
+    let s12 = Difference::new( Box::new( s1 ), Box::new( s2 ) );
+    let s3 = Sphere::new( Vec3::new( -0.7, 0.0, 10.0 ), 1.0, Material::diffuse( Color3::new( 0.0, 0.0, 1.0 ) ) );
+    let s123 = Difference::new( Box::new( s12 ), Box::new( s3 ) );
+    shapes.push( Rc::new( s123 ) );
+  }
 
-  MarchScene::new( Color3::BLACK, vec![ light ], shapes )
+  shapes.push( Rc::new( Sphere::new( Vec3::new( 0.0, 0.0, 10.0 ), 0.4, Material::diffuse( Color3::new( 1.0, 0.0, 0.0 ) ) ) ) );
+
+  MarchScene::new( Color3::BLACK, vec![ light1, light2 ], shapes )
 }
 
 // Turner Whitted's scene

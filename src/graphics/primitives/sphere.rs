@@ -1,6 +1,6 @@
 use std::f32::consts::PI;
 use crate::math::{Vec2, Vec3};
-use crate::graphics::{Color3, Material, AABB};
+use crate::graphics::{Color3, Material, PointMaterial, AABB};
 use crate::graphics::ray::{Ray, Tracable, Bounded, Marchable, Hit};
 
 /// A Sphere primitive
@@ -122,15 +122,19 @@ impl Tracable for Sphere {
 impl Marchable for Sphere {
   fn sdf( &self, p : &Vec3 ) -> f32 {
     let p2 = *p - self.location;
-    let d1 = p2.len( ) - self.radius;
-
-    let p3 = *p - ( self.location + Vec3::new( 0.5, 0.0, 0.0 ) );
-    let d2 = p3.len( ) - self.radius;
-
-    d1.max( -d2 )
+    p2.len( ) - self.radius
   }
 
   fn color( &self, _p : &Vec3 ) -> Color3 {
-    Color3::RED
+    if let Some( m ) = self.mat.evaluate_simple( ) {
+      match m {
+        PointMaterial::Reflect { color, .. } => {
+          color
+        }
+        _ => Color3::BLACK
+      }
+    } else {
+      Color3::BLACK
+    }
   }
 }

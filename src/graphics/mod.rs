@@ -1,6 +1,7 @@
 pub mod lights;
 pub mod primitives;
 pub mod ray;
+pub mod march_ops;
 
 mod color3;
 mod material;
@@ -19,5 +20,6 @@ pub use mesh::{Mesh};
 pub use texture::{Texture};
 pub use aabb::AABB;
 pub use bvh::{BVHNode};
+
 //pub use primitives::{TracablePrimitive};
 // pub use bvh4::{BVHNode4};

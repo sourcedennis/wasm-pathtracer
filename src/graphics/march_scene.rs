@@ -32,7 +32,7 @@ impl MarchScene {
         to_light = to_light / distance;
 
         let shadow_ray = Ray::new( *hit_loc, to_light );
-        if self.march( &shadow_ray, Some( distance ) ).is_none( ) {
+        if self.march( &shadow_ray, distance ).is_none( ) {
           Some( LightHit { dir: to_light, color: l.color, distance_sq: Some( distance_sq ) } )
         } else {
           None
@@ -41,7 +41,7 @@ impl MarchScene {
       Light::Directional( ref l ) => {
         let to_light   = -l.direction;
         let shadow_ray = Ray::new( *hit_loc, to_light );
-        if self.march( &shadow_ray, None ).is_some( ) {
+        if self.march( &shadow_ray, 30.0 /* TEMP */ ).is_some( ) {
           // A shadow occludes the lightsource
           None
         } else {
@@ -61,7 +61,7 @@ impl MarchScene {
 
         if angle_diff < l.angle {
           let shadow_ray = Ray::new( *hit_loc, to_light );
-          if self.march( &shadow_ray, Some( distance ) ).is_none( ) {
+          if self.march( &shadow_ray, distance ).is_none( ) {
             Some( LightHit { dir: to_light, color: l.color, distance_sq: Some( distance_sq ) } )
           } else {
             // It's occluded
@@ -75,7 +75,7 @@ impl MarchScene {
     }
   }
 
-  pub fn march< 'a >( &'a self, ray : &Ray, max_depth : Option< f32 > ) -> Option< ( f32, &'a Rc< dyn Marchable >) > {
+  pub fn march< 'a >( &'a self, ray : &Ray, max_depth : f32 ) -> Option< ( f32, &'a Rc< dyn Marchable >) > {
     let mut depth = 0.0;
 
     for _j in 0..128 {
@@ -86,10 +86,8 @@ impl MarchScene {
 
       depth += dist;
 
-      if let Some( md ) = max_depth {
-        if depth >= md {
-          return None;
-        }
+      if depth >= max_depth {
+        return None;
       }
     }
 

@@ -4,7 +4,7 @@ use crate::math::{EPSILON, Vec3};
 use crate::math;
 
 pub fn march_original_color( scene : &MarchScene, ray : &Ray ) -> Color3 {
-  if let Some( ( d, h ) ) = scene.march( ray, None ) {
+  if let Some( ( d, h ) ) = scene.march( ray, 30.0 /* TEMP */ ) {
     let p = ray.at( d );
     let normal = march_normal( h, &p );
     // Apply the bias here, along the normal. And 2 * EPSILON.
@@ -19,7 +19,7 @@ pub fn march_original_color( scene : &MarchScene, ray : &Ray ) -> Color3 {
 }
 
 pub fn march_original_depth( scene : &MarchScene, ray : &Ray ) -> Color3 {
-  if let Some( ( d, _h ) ) = scene.march( ray, None ) {
+  if let Some( ( d, _h ) ) = scene.march( ray, 30.0 /* TEMP */ ) {
     let v = 1.0 - math::clamp( ( d - 5.0 ) / 4.0, 0.0, 1.0 );
     Color3::new( v, v, v )
   } else {

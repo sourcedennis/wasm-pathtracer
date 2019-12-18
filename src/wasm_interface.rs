@@ -2,19 +2,20 @@
 // External imports
 use wasm_bindgen::prelude::*;
 use std::collections::HashMap;
+use std::rc::Rc;
 // Local imports
 use crate::data::cap_stack::{Stack};
 use crate::graphics::{Scene, MarchScene};
-use crate::graphics::ray::{Ray, Marchable};
+use crate::graphics::ray::{Ray, Tracable};
+use crate::graphics::primitives::{Triangle};
 use crate::graphics::{Mesh, Texture, Color3};
 use crate::math::{Vec3};
-use crate::scenes::{setup_scene_cubesphere, setup_scene_bunny_low, setup_scene_bunny_high, setup_scene_cloud100, setup_scene_cloud10k, setup_scene_cloud100k};
+use crate::scenes::{setup_scene_cubesphere, setup_scene_bunny_low, setup_scene_bunny_high,
+  setup_scene_cloud100, setup_scene_cloud10k, setup_scene_cloud100k, setup_scene_march};
 use crate::tracer::{MatRefract, Camera, trace_original_color, trace_original_depth, trace_original_bvh};
 use crate::marcher::{march_original_color, march_original_depth};
 
-use crate::math::{EPSILON};
 use crate::graphics::{Material};
-use crate::graphics::primitives::{Sphere};
 
 // This file contains all the functions that are exposed through WebAssembly
 // Interfacing with JavaScript is a bit annoying, as only primitives (i32, i64, f32, f64)
@@ -274,7 +275,7 @@ pub fn allocate_mesh( id : u32, num_vertices : u32 ) {
     if let Some( ref mut conf ) = CONFIG {
       conf.meshes.insert(
           id
-        , Mesh { vertices: vec![Vec3::ZERO; num_vertices as usize] }
+        , Mesh::Preload( vec![Vec3::ZERO; num_vertices as usize] )
         );
     } else {
       panic!( "init not called" )
@@ -288,8 +289,8 @@ pub fn allocate_mesh( id : u32, num_vertices : u32 ) {
 pub fn mesh_vertices( id : u32 ) -> *mut Vec3 {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
-      if let Some( ref mut m ) = conf.meshes.get_mut( &id ) {
-        m.vertices.as_mut_ptr( )
+      if let Some( Mesh::Preload( ref mut m ) ) = conf.meshes.get_mut( &id ) {
+        m.as_mut_ptr( )
       } else {
         panic!( "Mesh not allocated" )
       }
@@ -306,6 +307,26 @@ pub fn mesh_vertices( id : u32 ) -> *mut Vec3 {
 pub fn notify_mesh_loaded( id : u32 ) -> bool {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
+      if let Some( Mesh::Preload( ref m ) ) = conf.meshes.get_mut( &id ) {
+        let num_triangles = m.len( ) / 3;
+        let mut triangles : Vec< Rc< dyn Tracable > > = Vec::with_capacity( num_triangles );
+
+        let mat = Material::diffuse( Color3::new( 1.0, 0.4, 0.4 ) );
+
+        for i in 0..num_triangles {
+          // These are actually transformations within the scene
+          // But do perform them here, instead of upon each scene construction
+          let mut triangle =
+            Triangle::new( m[ i * 3 + 0 ] * 0.5, m[ i * 3 + 1 ] * 0.5, m[ i * 3 + 2 ] * 0.5
+                , mat.clone( ) );
+          triangle = triangle.translate( Vec3::new( 0.0, 0.0, 5.0 ) );
+
+          triangles.push( Rc::new( triangle ) );
+        }
+
+        conf.meshes.insert( id, Mesh::Triangled( triangles ) );
+      }
+
       // Scene 1 uses mesh 0. Scene 2 uses mesh 1. Scene 3 uses mesh 2
       if ( id == 0 && conf.scene_id == 1 ) ||
          ( id == 1 && conf.scene_id == 2 ) ||
@@ -518,6 +539,7 @@ fn select_scene( id       : u32
     3 => SceneEnum::Trace( setup_scene_cloud100( meshes ) ),
     4 => SceneEnum::Trace( setup_scene_cloud10k( meshes ) ),
     5 => SceneEnum::Trace( setup_scene_cloud100k( meshes ) ),
+    6 => SceneEnum::March( setup_scene_march( ) ),
     _ => panic!( "Invalid scene" )
   }
 }

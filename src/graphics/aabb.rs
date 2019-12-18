@@ -120,4 +120,36 @@ impl AABB {
       None
     }
   }
+
+  pub fn hit_furthest( &self, ray : &Ray ) -> Option< f32 > {
+    let invdx = 1.0 / ray.dir.x;
+    let invdy = 1.0 / ray.dir.y;
+    let invdz = 1.0 / ray.dir.z;
+
+    // "Clip" the line within the box, along each axis
+    let tx1 = ( self.x_min - ray.origin.x ) * invdx;
+    let tx2 = ( self.x_max - ray.origin.x ) * invdx;
+    let ty1 = ( self.y_min - ray.origin.y ) * invdy;
+    let ty2 = ( self.y_max - ray.origin.y ) * invdy;
+    let tz1 = ( self.z_min - ray.origin.z ) * invdz;
+    let tz2 = ( self.z_max - ray.origin.z ) * invdz;
+
+    let txmin = tx1.min(tx2);
+    let tymin = ty1.min(ty2);
+    let tzmin = tz1.min(tz2);
+    let txmax = tx1.max(tx2);
+    let tymax = ty1.max(ty2);
+    let tzmax = tz1.max(tz2);
+
+    let tmin = txmin.max(tymin).max(tzmin);
+    let tmax = txmax.min(tymax).min(tzmax);
+
+    if tmin > tmax { // Does not intersect
+      None
+    } else if tmax >= 0.0 { // Inside the box
+      Some( tmax )
+    } else { // Box behind camera
+      None
+    }
+  }
 }

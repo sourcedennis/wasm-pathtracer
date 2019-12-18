@@ -169,12 +169,10 @@ export class MulticoreRaytracer implements Raytracer {
       let msg : MsgC2WRebuildBVH = { type: 'rebuild_bvh', numBins };
       this._workers.send1( msg );
       return this._workers.await1( 'bvh_done' ).then( ( ) => {
-        console.log( 'first done' );
         duration = Date.now( ) - startTime;
       } );
     } );
     return this._queue.add( ( ) => {
-      console.log( 'start all' );
       let msg : MsgC2WRebuildBVH = { type: 'rebuild_bvh', numBins };
       this._workers.send( msg );
       return Promise.all( this._workers.awaitAll( 'bvh_done' ) )
@@ -242,9 +240,6 @@ class MsgController {
         let msg = ev.data;
         let q = this._workers[ i ].queue.get( msg.type );
         if ( q ) {
-          if ( msg.type !== 'compute_done' ) {
-            console.log( 'received', msg );
-          }
           let h = <EmptyPromise<any>> q.shift( );
           h.fulfil( msg );
         } else {
@@ -255,18 +250,12 @@ class MsgController {
   }
 
   public send( msg : Msg ) {
-    if ( msg.type !== 'compute' ) {
-      console.log( 'sent', msg );
-    }
     for ( let i = 0; i < this._workers.length; i++ ) {
       this._workers[ i ].worker.postMessage( msg );
     }
   }
 
   public send1( msg : Msg ) {
-    if ( msg.type !== 'compute' ) {
-      console.log( 'sent1', msg );
-    }
     this._workers[ 0 ].worker.postMessage( msg );
   }
 

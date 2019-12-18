@@ -305,6 +305,8 @@ function sceneCamera( sceneId : number ): Camera {
     return new Camera( new Vec3( -0.9, 5.4, 0.4 ), 0.58, 0.0 );
   } else if ( sceneId === 3 || sceneId === 4 || sceneId === 5 ) { // clouds
     return new Camera( new Vec3( 0.0, 4.8, 2.6 ), 0.97, 0.0 );
+  } else if ( sceneId === 6 ) { // marching
+    return new Camera( new Vec3( 2.08, 1.29, 8.21 ), 0.39, -0.90 );
   } else {
     throw new Error( 'No Scene' );
   }
