@@ -96,6 +96,7 @@ function handleUpdateCamera( msg : MsgC2WUpdateCamera ) {
 
 function handleUpdateScene( msg : MsgC2WUpdateScene ) {
   instance.exports.update_scene( msg.sceneId );
+  postMessage( <Msg> { type: 'update_scene_done' } ); // TODO
 }
 
 function handleStoreMesh( msg : MsgC2WStoreMesh ) {

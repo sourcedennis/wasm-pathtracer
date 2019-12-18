@@ -7,7 +7,7 @@ use crate::graphics::AABB;
 /// For now, its normal always points upward
 ///
 /// It is characterised by a location and size
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Square {
   location : Vec3,
   // The size along the x- and z-axis

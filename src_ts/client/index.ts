@@ -10,7 +10,8 @@ import { CameraController }            from './input/camera_controller';
 import { Raytracer }                   from './raytracer';
 import { SinglecoreRaytracer }         from './raytracer/singlecore';
 import { MulticoreRaytracer }          from './raytracer/multicore';
-import { Elm }                         from './SidePanel.elm';
+import { Elm as ElmScene }             from './PanelScenes.elm';
+import { Elm as ElmSettings }          from './PanelSettings.elm';
 import { parseObj }                    from './obj_parser';
 import { MeshId }                      from './meshes';
 import { Msg } from '@s/worker_messages';
@@ -179,7 +180,7 @@ class Global {
     this._config.height = height;
     this._target       = new RenderTarget( this._config.width, this._config.height );
     this._canvasElem.updateTarget( this._target );
-    
+
     // Restart the raytracer
     this._raytracer.destroy( );
     if ( this._config.isRunning ) {
@@ -274,7 +275,7 @@ class Global {
   private _onResize( ) {
     const canvas  = this._canvas;
     canvas.height = document.body.clientHeight;
-    canvas.width  = document.body.clientWidth - 250 / (3 / 4);
+    canvas.width  = document.body.clientWidth - 2 * ( 250 / (3 / 4) );
     this._canvasElem.reclamp( );
   }
 
@@ -300,7 +301,9 @@ class Global {
 function sceneCamera( sceneId : number ): Camera {
   if ( sceneId === 0 ) { // cubes and spheres
     return new Camera( new Vec3( -3.7, 3.5, -0.35 ), 0.47, 0.54 );
-  } else if ( sceneId === 1 || sceneId === 2 || sceneId === 3 ) { // clouds
+  } else if ( sceneId === 1 || sceneId == 2 ) { // bunnies
+    return new Camera( new Vec3( -0.9, 5.4, 0.4 ), 0.58, 0.0 );
+  } else if ( sceneId === 3 || sceneId === 4 || sceneId === 5 ) { // clouds
     return new Camera( new Vec3( 0.0, 4.8, 2.6 ), 0.97, 0.0 );
   } else {
     throw new Error( 'No Scene' );
@@ -337,26 +340,31 @@ document.addEventListener( 'DOMContentLoaded', ev => {
     .then( compiledMod => {
       const env = new Global( canvas, compiledMod );
 
-      let settingsPanel = document.getElementById( 'sidepanel' );
-      const app = Elm.SidePanel.init( { node: settingsPanel } );
-      app.ports.updateRenderType.subscribe( t => env.setRenderType( t ) );
-      app.ports.updateReflectionDepth.subscribe( d => env.setReflectionDepth( d ) );
-      app.ports.updateRunning.subscribe( r => env.updateRunning( r ) );
-      app.ports.updateMulticore.subscribe( r => env.updateMulticore( r ) );
-      app.ports.updateScene.subscribe( sid => env.updateScene( sid ) );
-      app.ports.updateViewport.subscribe( vp => env.updateViewport( vp[ 0 ], vp[ 1 ] ) );
-      app.ports.updateHasBVH.subscribe( b => env.enableBvh( b ) );
+      const scenePanel = document.getElementById( 'scenepanel' );
+      const appScenes = ElmScene.PanelScenes.init( { node: scenePanel } );
+      appScenes.ports.updateScene.subscribe( sid => env.updateScene( sid ) );
 
-      env.onRenderDone( ).subscribe( res => app.ports.updatePerformance.send( res ) );
-      // env.onCameraUpdate( ).subscribe( c =>
-      //   app.ports.updateCamera.send( { x: c.location.x, y: c.location.y, z: c.location.z, rotX: c.rotX, rotY: c.rotY } )
-      // );
+      let settingsPanel = document.getElementById( 'settingspanel' );
+      const appSettings = ElmSettings.PanelSettings.init( { node: settingsPanel } );
+      appSettings.ports.updateRenderType.subscribe( t => env.setRenderType( t ) );
+      appSettings.ports.updateReflectionDepth.subscribe( d => env.setReflectionDepth( d ) );
+      appSettings.ports.updateRunning.subscribe( r => env.updateRunning( r ) );
+      appSettings.ports.updateMulticore.subscribe( r => env.updateMulticore( r ) );
+      //appSettings.ports.updateScene.subscribe( sid => env.updateScene( sid ) );
+      appSettings.ports.updateViewport.subscribe( vp => env.updateViewport( vp[ 0 ], vp[ 1 ] ) );
+      appSettings.ports.updateHasBVH.subscribe( b => env.enableBvh( b ) );
+
+      env.onRenderDone( ).subscribe( res => appSettings.ports.updatePerformance.send( res ) );
+      env.onCameraUpdate( ).subscribe( c => {
+         //app.ports.updateCamera.send( { x: c.location.x, y: c.location.y, z: c.location.z, rotX: c.rotX, rotY: c.rotY } )
+         console.log( c );
+      } );
       env.triggerCameraUpdate( );
-      
+
       env.onBvhDone( ).subscribe( r => {
         console.log( 'BVH Done!', r );
         if ( typeof r !== 'undefined' ) {
-          app.ports.updateBVHTime.send( r );
+          appSettings.ports.updateBVHTime.send( r );
         }
       } );
 
@@ -364,17 +372,26 @@ document.addEventListener( 'DOMContentLoaded', ev => {
 
       fetch( 'bunny.obj' ).then( f => f.text( ) ).then( s => {
         let triangles = parseObj( s );
-        //env.storeMesh( MeshId.MESH_TORUS, triangles );
         let numVertices = triangles.vertices.length / 3;
         for ( let i = 0; i < numVertices; i++ ) {
-          triangles.vertices[ i * 3 + 0 ] *= 50;
-          triangles.vertices[ i * 3 + 1 ] *= 50;
-          triangles.vertices[ i * 3 + 2 ] *= -50;
+          triangles.vertices[ i * 3 + 0 ] *= 8;
+          triangles.vertices[ i * 3 + 1 ] *= 8;
+          triangles.vertices[ i * 3 + 2 ] *= -8;
         }
-        env.storeMesh( MeshId.CLOUD_100, triangles );
+        env.storeMesh( MeshId.BUNNY_LOW, triangles );
+      } );
+      fetch( 'bunny2.obj' ).then( f => f.text( ) ).then( s => {
+        let triangles = parseObj( s );
+        let numVertices = triangles.vertices.length / 3;
+        for ( let i = 0; i < numVertices; i++ ) {
+          triangles.vertices[ i * 3 + 0 ] *= 8;
+          triangles.vertices[ i * 3 + 1 ] *= 8;
+          triangles.vertices[ i * 3 + 2 ] *= -8;
+        }
+        env.storeMesh( MeshId.BUNNY_HIGH, triangles );
       } );
 
-      //env.storeMesh( MeshId.CLOUD_100,  triangleCloud( 100 ) );
+      env.storeMesh( MeshId.CLOUD_100,  triangleCloud( 100 ) );
       env.storeMesh( MeshId.CLOUD_10K,  triangleCloud( 10000 ) );
       env.storeMesh( MeshId.CLOUD_100K, triangleCloud( 100000 ) );
 

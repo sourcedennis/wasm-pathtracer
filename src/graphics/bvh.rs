@@ -1,7 +1,6 @@
 use crate::graphics::AABB;
 use crate::graphics::ray::Tracable;
 use crate::math::Vec3;
-use crate::math::EPSILON;
 use std::rc::Rc;
 
 #[derive(Copy,Clone,Debug)]
@@ -18,6 +17,18 @@ impl BVHNode {
 
   pub fn node( bounds : AABB, first : u32 ) -> BVHNode {
     BVHNode { bounds, left_first: first, count: 0 }
+  }
+
+  pub fn build( shapes : &mut [Rc< dyn Tracable >], num_bins : usize ) -> (usize, Vec< BVHNode >) {
+    build_bvh( shapes, num_bins )
+  }
+
+  pub fn verify( shapes : &[Rc< dyn Tracable >], num_infinite : usize, bvh : &Vec< BVHNode > ) -> bool {
+    verify_bvh( shapes, num_infinite, bvh )
+  }
+
+  pub fn depth( nodes : &Vec< BVHNode > ) -> u32 {
+    bvh_depth( nodes )
   }
 }
 
@@ -37,8 +48,8 @@ static BVH_PLACEHOLDER: BVHNode =
 
 type Utility = f32;
 
-// Uses O(n log n) time
-pub fn build_bvh( shapes : &mut Vec< Rc< dyn Tracable > >, num_bins : usize ) -> (usize, Vec< BVHNode >) {
+// Uses O(k * n log n) time, where `k` is the number of bins
+fn build_bvh( shapes : &mut [Rc< dyn Tracable >], num_bins : usize ) -> (usize, Vec< BVHNode >) {
   let (num_infinite, mut reps) = shape_reps( shapes );
   let mut dst  = Vec::with_capacity( shapes.len( ) * 2 - 1 );
 
@@ -62,7 +73,7 @@ pub fn build_bvh( shapes : &mut Vec< Rc< dyn Tracable > >, num_bins : usize ) ->
   }
 }
 
-pub fn verify_bvh( shapes : &Vec< Rc< dyn Tracable > >, num_infinite : usize, bvh : &Vec< BVHNode > ) -> bool {
+fn verify_bvh( shapes : &[Rc< dyn Tracable >], num_infinite : usize, bvh : &Vec< BVHNode > ) -> bool {
   let a = verify_bvh_bounds( shapes, num_infinite, bvh, 0 ).is_some( );
   let mut contained = vec![false; shapes.len()-num_infinite];
   verify_bvh_contains( &mut contained, bvh, 0 );
@@ -87,7 +98,7 @@ fn verify_bvh_contains( contained : &mut [bool], bvh : &Vec< BVHNode >, i : usiz
   }
 }
 
-fn verify_bvh_bounds( shapes : &Vec< Rc< dyn Tracable > >, num_infinite : usize, bvh : &Vec< BVHNode >, i : usize ) -> Option< AABB > {
+fn verify_bvh_bounds( shapes : &[Rc< dyn Tracable >], num_infinite : usize, bvh : &Vec< BVHNode >, i : usize ) -> Option< AABB > {
   let n = &bvh[ i ];
   let bounds = &n.bounds;
 
@@ -127,7 +138,7 @@ fn verify_bvh_bounds( shapes : &Vec< Rc< dyn Tracable > >, num_infinite : usize,
   }
 }
 
-pub fn bvh_depth( nodes : &Vec< BVHNode > ) -> u32 {
+fn bvh_depth( nodes : &Vec< BVHNode > ) -> u32 {
   depth_rec( nodes, 0 )
 }
 
@@ -148,7 +159,7 @@ fn depth_rec( nodes : &Vec< BVHNode >, i : usize ) -> u32 {
 
 // `offset` and `length` index into `shapes`. Slices cannot be used, as absolute offsets are stored in the BVH.
 fn subdivide( dst            : &mut Vec< BVHNode >
-            , shapes         : &mut Vec< ShapeRep >
+            , shapes         : &mut [ShapeRep]
             , offset         : usize
             , length         : usize
             , num_bins       : usize
@@ -317,9 +328,9 @@ fn split_axis< FAxis : Fn(&ShapeRep) -> f32 >(
 /// For the non-infinite shapes, returns a vector of `ShapeRep`s
 ///
 /// WARNING: The order of `shapes` and `dst` is *not* the same
-fn shape_reps( mut shapes : &mut Vec< Rc< dyn Tracable > > ) -> ( usize, Vec< ShapeRep > ) {
+fn shape_reps( shapes : &mut [Rc< dyn Tracable >] ) -> ( usize, Vec< ShapeRep > ) {
   let mut num_infinite = 0;
-  let mut dst = Vec::with_capacity( shapes.len( ) );
+  let mut dst : Vec< ShapeRep > = Vec::with_capacity( shapes.len( ) );
   for i in 0..shapes.len( ) {
     let shape = &shapes[ i ];
     if let Some( bounds ) = shape.aabb( ) {

@@ -11,9 +11,11 @@ use crate::graphics::Mesh;
 use crate::math::Vec3;
 use crate::math;
 
-static MESH_CLOUD_100  : u32 = 0;
-static MESH_CLOUD_10K  : u32 = 1;
-static MESH_CLOUD_100K : u32 = 2;
+static MESH_BUNNY_LOW  : u32 = 0;
+static MESH_BUNNY_HIGH : u32 = 1;
+static MESH_CLOUD_100  : u32 = 2;
+static MESH_CLOUD_10K  : u32 = 3;
+static MESH_CLOUD_100K : u32 = 4;
 
 // A scene with refractive and semi-specular objects
 // pub fn setup_scene( ) -> Scene {
@@ -69,6 +71,16 @@ pub fn setup_scene_cubesphere( ) -> Scene {
 }
 
 // A scene with the .obj file loaded into it
+pub fn setup_scene_bunny_low( meshes : &HashMap< u32, Mesh > ) -> Scene {
+  display_obj( meshes, MESH_BUNNY_LOW )
+}
+
+// A scene with the .obj file loaded into it
+pub fn setup_scene_bunny_high( meshes : &HashMap< u32, Mesh > ) -> Scene {
+  display_obj( meshes, MESH_BUNNY_HIGH )
+}
+
+// A scene with the .obj file loaded into it
 pub fn setup_scene_cloud100( meshes : &HashMap< u32, Mesh > ) -> Scene {
   display_obj( meshes, MESH_CLOUD_100 )
 }
@@ -84,24 +96,31 @@ pub fn setup_scene_cloud100k( meshes : &HashMap< u32, Mesh > ) -> Scene {
 fn display_obj( meshes : &HashMap< u32, Mesh >, mesh_id : u32 ) -> Scene {
   let light = Light::point( Vec3::new( 0.0, 6.0, 2.0 ), Color3::new( 0.7, 0.7, 0.7 ), 50.0 );
   let light2 = Light::point( Vec3::new( 0.0, 10.0, 12.0 ), Color3::new( 0.8, 0.8, 0.8 ), 30.0 );
-  
-  let mut shapes: Vec< Rc< dyn Tracable > > = Vec::new( );
 
-  shapes.push( Rc::new( Plane::new( Vec3::new( 0.0, -1.0, 0.0 ), Vec3::new( 0.0, 1.0, 0.0 ), Material::reflect( Color3::new( 1.0, 1.0, 1.0 ), 0.1 ) ) ) );
-  shapes.push( Rc::new( Plane::new( Vec3::new( 0.0, 0.0, 13.0 ), Vec3::new( 0.0, 0.0, -1.0 ), Material::diffuse( Color3::new( 1.0, 1.0, 1.0 ) ) ) ) );
-  
-  //let mat = Material::refract( Vec3::new( 0.7, 0.2, 0.1 ), 1.5 );
   let mat = Material::diffuse( Color3::new( 1.0, 0.4, 0.4 ) );
 
-  if let Some( mesh ) = meshes.get( &mesh_id ) {
-    for i in 0..(mesh.vertices.len()/3) {
-      let mut triangle =
-        Triangle::new( mesh.vertices[ i * 3 + 0 ] * 0.5, mesh.vertices[ i * 3 + 1 ] * 0.5, mesh.vertices[ i * 3 + 2 ] * 0.5
-                     , mat.clone( ) );
-      triangle = triangle.translate( Vec3::new( 0.0, 0.0, 5.0 ) );
-      shapes.push( Rc::new( triangle ) );
-    }
-  }
+  let shapes : Vec< Rc< dyn Tracable > > =
+    if let Some( mesh ) = meshes.get( &mesh_id ) {
+      let num_triangles = mesh.vertices.len( ) / 3;
+
+      let mut shapes : Vec< Rc< dyn Tracable > > = Vec::with_capacity( num_triangles + 2 );
+      shapes.push( Rc::new( Plane::new( Vec3::new( 0.0, -1.0, 0.0 ), Vec3::new( 0.0, 1.0, 0.0 ), Material::reflect( Color3::new( 1.0, 1.0, 1.0 ), 0.1 ) ) ) );
+      shapes.push( Rc::new( Plane::new( Vec3::new( 0.0, 0.0, 13.0 ), Vec3::new( 0.0, 0.0, -1.0 ), Material::diffuse( Color3::new( 1.0, 1.0, 1.0 ) ) ) ) );
+
+      for i in 0..num_triangles {
+        let mut triangle =
+          Triangle::new( mesh.vertices[ i * 3 + 0 ] * 0.5, mesh.vertices[ i * 3 + 1 ] * 0.5, mesh.vertices[ i * 3 + 2 ] * 0.5
+                       , mat.clone( ) );
+        triangle = triangle.translate( Vec3::new( 0.0, 0.0, 5.0 ) );
+        shapes.push( Rc::new( triangle ) );
+      }
+      shapes
+    } else {
+      let mut shapes : Vec< Rc< dyn Tracable > > = Vec::new( );
+      shapes.push( Rc::new( Plane::new( Vec3::new( 0.0, -1.0, 0.0 ), Vec3::new( 0.0, 1.0, 0.0 ), Material::reflect( Color3::new( 1.0, 1.0, 1.0 ), 0.1 ) ) ) );
+      shapes.push( Rc::new( Plane::new( Vec3::new( 0.0, 0.0, 13.0 ), Vec3::new( 0.0, 0.0, -1.0 ), Material::diffuse( Color3::new( 1.0, 1.0, 1.0 ) ) ) ) );
+      shapes
+    };
 
   Scene::new( Color3::BLACK, vec![ light, light2 ], shapes )
 }
@@ -119,7 +138,7 @@ pub fn setup_scene_march( ) -> MarchScene {
 // Turner Whitted's scene
 // pub fn setup_scene_texture( textures : &HashMap< u32, Texture > ) -> Scene {
 //   let light = Light::point( Vec3::new( 0.0, 6.0, -3.0 ), Color3::new( 0.7, 0.7, 0.7 ), 50.0 );
-  
+
 //   let mut shapes: Vec< Rc< dyn Tracable > > = Vec::new( );
 
 //   if let Some( t ) = textures.get( &0 ) {

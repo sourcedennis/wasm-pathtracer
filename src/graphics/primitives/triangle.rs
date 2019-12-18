@@ -5,7 +5,7 @@ use crate::graphics::AABB;
 
 /// A triangle in 3-dimensional space
 /// It's normal is inferred from the plane between the vertices
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Triangle {
   v0  : Vec3,
   v1  : Vec3,
@@ -42,12 +42,12 @@ impl Bounded for Triangle {
     let z_max = self.v0.z.max( self.v1.z ).max( self.v2.z );
 
     Some( AABB::new1(
-        x_min
-      , y_min
-      , z_min
-      , x_max
-      , y_max
-      , z_max
+        x_min - 0.1 * EPSILON
+      , y_min - 0.1 * EPSILON
+      , z_min - 0.1 * EPSILON
+      , x_max + 0.1 * EPSILON
+      , y_max + 0.1 * EPSILON
+      , z_max + 0.1 * EPSILON
       )
     )
   }

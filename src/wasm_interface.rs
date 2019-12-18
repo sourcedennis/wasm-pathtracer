@@ -8,7 +8,7 @@ use crate::graphics::{Scene, MarchScene};
 use crate::graphics::ray::{Ray, Marchable};
 use crate::graphics::{Mesh, Texture, Color3};
 use crate::math::{Vec3};
-use crate::scenes::{setup_scene_cubesphere, setup_scene_cloud100, setup_scene_cloud10k, setup_scene_cloud100k, setup_scene_march};
+use crate::scenes::{setup_scene_cubesphere, setup_scene_bunny_low, setup_scene_bunny_high, setup_scene_cloud100, setup_scene_cloud10k, setup_scene_cloud100k};
 use crate::tracer::{MatRefract, Camera, trace_original_color, trace_original_depth, trace_original_bvh};
 use crate::marcher::{march_original_color, march_original_depth};
 
@@ -417,9 +417,9 @@ fn compute_depth( conf : &mut Config ) {
     SceneEnum::Trace( ref s ) => {
       for i in 0..(conf.num_rays as usize) {
         let (x, y) = conf.pixel_coords[ i ];
-    
+
         let res = trace_original_depth( s, &conf.rays[ i ] );
-    
+
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
@@ -429,9 +429,9 @@ fn compute_depth( conf : &mut Config ) {
     SceneEnum::March( ref s ) => {
       for i in 0..(conf.num_rays as usize) {
         let (x, y) = conf.pixel_coords[ i ];
-    
+
         let res = march_original_depth( s, &conf.rays[ i ] );
-    
+
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
@@ -446,9 +446,9 @@ fn compute_bvh( conf : &mut Config ) {
     SceneEnum::Trace( ref s ) => {
       for i in 0..(conf.num_rays as usize) {
         let (x, y) = conf.pixel_coords[ i ];
-    
+
         let res = trace_original_bvh( s, &conf.rays[ i ] );
-    
+
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
@@ -478,10 +478,10 @@ fn compute_color( conf : &mut Config ) {
     SceneEnum::Trace( ref s ) => {
       for i in 0..(conf.num_rays as usize) {
         let (x, y) = conf.pixel_coords[ i ];
-    
+
         // Note that `mat_stack` already contains the "material" for air (so now it's a stack of air)
         let res = trace_original_color( s, &conf.rays[ i ], conf.max_ray_depth, mat_stack );
-    
+
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
@@ -491,10 +491,10 @@ fn compute_color( conf : &mut Config ) {
     SceneEnum::March( ref s ) => {
       for i in 0..(conf.num_rays as usize) {
         let (x, y) = conf.pixel_coords[ i ];
-  
+
         // Note that `mat_stack` already contains the "material" for air (so now it's a stack of air)
         let res = march_original_color( s, &conf.rays[ i ] );
-    
+
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
@@ -513,10 +513,11 @@ fn select_scene( id       : u32
                ) -> SceneEnum {
   match id {
     0 => SceneEnum::Trace( setup_scene_cubesphere( ) ),
-    1 => SceneEnum::Trace( setup_scene_cloud100( meshes ) ),
-    2 => SceneEnum::Trace( setup_scene_cloud10k( meshes ) ),
-    3 => SceneEnum::Trace( setup_scene_cloud100k( meshes ) ),
-    4 => SceneEnum::March( setup_scene_march( ) ),
+    1 => SceneEnum::Trace( setup_scene_bunny_low( meshes ) ),
+    2 => SceneEnum::Trace( setup_scene_bunny_high( meshes ) ),
+    3 => SceneEnum::Trace( setup_scene_cloud100( meshes ) ),
+    4 => SceneEnum::Trace( setup_scene_cloud10k( meshes ) ),
+    5 => SceneEnum::Trace( setup_scene_cloud100k( meshes ) ),
     _ => panic!( "Invalid scene" )
   }
 }

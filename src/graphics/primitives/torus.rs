@@ -7,7 +7,7 @@ use crate::graphics::ray::{Ray, Tracable, Bounded, Hit};
 use crate::graphics::AABB;
 
 // A torus that lies flat; that is, its gap lies in the x/z-plane
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Torus {
   location : Vec3,
   big_r    : f32,

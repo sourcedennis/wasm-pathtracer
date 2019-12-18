@@ -2,15 +2,17 @@ use crate::graphics::{Color3};
 use crate::graphics::ray::{Ray, Hit, Tracable};
 use crate::graphics::lights::Light;
 use crate::math::{Vec3, EPSILON};
-use crate::graphics::{BVHNode, BVHNode4, build_bvh, verify_bvh};
+use crate::graphics::{BVHNode};
 use std::f32::INFINITY;
 use std::rc::Rc;
 
-enum BVHEnum {
-  BVH2( usize, Vec< BVHNode > ),
-  BVH4( usize, Vec< BVHNode4 > ),
-  BVHNone
-}
+// enum BVHEnum {
+//   // It is a 4-way BVH when bounds.x=INFINITE
+//   // This skips the parent check
+//   BVH2( usize, Vec< BVHNode > ),
+//   //BVH4( usize, Vec< BVHNode4 > ),
+//   BVHNone
+// }
 
 // A Scene consists of shapes and lights
 // The camera is *not* part of the scene
@@ -20,7 +22,7 @@ pub struct Scene {
   pub background : Color3,
   pub lights     : Vec< Light >,
   pub shapes     : Vec< Rc< dyn Tracable > >,
-      bvh        : BVHEnum
+      bvh        : Option< ( usize, Vec< BVHNode > ) >
 }
 
 // A "hit" for a light source
@@ -41,13 +43,13 @@ impl Scene {
             , lights     : Vec< Light >
             , mut shapes : Vec< Rc< dyn Tracable > >
             ) -> Scene {
-    Scene { background, lights, bvh: BVHEnum::BVHNone, shapes }
+    Scene { background, lights, bvh: None, shapes }
   }
 
   pub fn rebuild_bvh( &mut self, num_bins : usize ) {
-    let (num_inf, bvh) = build_bvh( &mut self.shapes, num_bins );
-    //self.bvh = BVHEnum::BVH2( num_inf, bvh );
-    self.bvh = BVHEnum::BVH4( num_inf, BVHNode4::from_bvh( &bvh ) );
+    let (num_inf, bvh) = BVHNode::build( &mut self.shapes, num_bins );
+    self.bvh = Some( ( num_inf, bvh ) );
+    //self.bvh = BVHEnum::BVH4( num_inf, BVHNode4::from_bvh( &bvh ) );
     // if verify_bvh( &shapes, numinf, &bvh) {
     //   // OK
     // } else {
@@ -56,7 +58,7 @@ impl Scene {
   }
 
   pub fn disable_bvh( &mut self ) {
-    self.bvh = BVHEnum::BVHNone;
+    self.bvh = None;
   }
 
   // Casts a shadow ray from the `hit_loc` to all lights in the scene
@@ -129,120 +131,122 @@ impl Scene {
   }
 
   fn trace_g< 'a >( &'a self, ray : &Ray ) -> (usize, Option< (f32, &'a Rc< dyn Tracable >) >) {
-    match &self.bvh {
-      BVHEnum::BVH2( numinf, bvh ) => {
-        if let Some( h1 ) = trace_shapes( ray, &self.shapes[..*numinf] ) {
-          let (d2, h2) = traverse_bvh( ray, *numinf, bvh, &self.shapes, 0, h1.0 );
-          (d2, closest( Some( h1 ), h2 ))
-        } else {
-          traverse_bvh( ray, *numinf, bvh, &self.shapes, 0, INFINITY )
-        }
-      },
-      BVHEnum::BVH4( numinf, bvh ) => {
-        if let Some( h1 ) = trace_shapes( ray, &self.shapes[..*numinf] ) {
-          let (d2, h2) = traverse_bvh4( ray, *numinf, bvh, &self.shapes, 0, h1.0 );
-          (d2, closest( Some( h1 ), h2 ))
-        } else {
-          traverse_bvh4( ray, *numinf, bvh, &self.shapes, 0, INFINITY )
-        }
-      },
-      BVHEnum::BVHNone => {
-        (0, trace_shapes( ray, &self.shapes ))
+    if let Some( ( numinf, bvh ) ) = &self.bvh {
+      if let Some( h1 ) = trace_shapes( ray, &self.shapes[..*numinf] ) {
+        let (d2, h2) = traverse_bvh_guarded( ray, *numinf, &bvh, &self.shapes, 0, h1.0 );
+        (d2, closest( Some( h1 ), h2 ))
+      } else {
+        traverse_bvh_guarded( ray, *numinf, &bvh, &self.shapes, 0, INFINITY )
       }
+    } else {
+      (0, trace_shapes( ray, &self.shapes ))
     }
   }
 }
 
-fn traverse_bvh< 'a >(
+#[allow(dead_code)]
+fn traverse_bvh_guarded< 'a >( 
       ray     : &Ray
     , num_inf : usize
-    , bvh     : &Vec< BVHNode >
-    , shapes  : &'a Vec< Rc< dyn Tracable > >
+    , bvh     : &[BVHNode]
+    , shapes  : &'a [Rc< dyn Tracable >]
     , node_i  : usize
     , max_dis : f32 ) -> (usize, Option< (f32, &'a Rc< dyn Tracable >) >) {
   
   let node = &bvh[ node_i ];
-  let bounds = node.bounds;
+  let bounds = &node.bounds;
+  
+  if let Some( h ) = bounds.hit( ray ) {
+    if h < max_dis {
+      traverse_bvh( ray, num_inf, bvh, shapes, node_i, max_dis )
+    } else {
+      (1, None)
+    }
+  } else {
+    (1, None)
+  }
+}
+
+// Assume the bounding box of `node_i` *does* intersect
+fn traverse_bvh< 'a >(
+      ray     : &Ray
+    , num_inf : usize
+    , bvh     : &[BVHNode]
+    , shapes  : &'a [Rc< dyn Tracable >]
+    , node_i  : usize
+    , max_dis : f32 ) -> (usize, Option< (f32, &'a Rc< dyn Tracable >) >) {
+  
+  let node = &bvh[ node_i ];
   if node.count != 0 { // leaf
     let offset = node.left_first as usize;
     let size = node.count as usize;
 
-      if let Some( h ) = bounds.hit( ray ) {
-        if h >= 0.0 && h < max_dis {
-          (1, trace_shapes( ray, &shapes[(num_inf+offset)..(num_inf+offset+size)] ))
-        } else {
-          (1, None)
-        }
-      } else {
-        (1, None)
-      }
+    (1, trace_shapes( ray, &shapes[(num_inf+offset)..(num_inf+offset+size)] ))
   } else { // node
     let left_index = node.left_first as usize;
 
-    if let Some( h ) = bounds.hit( ray ) {
-      if h >= 0.0 && h < max_dis {
-        if let Some( left_dis ) = aabb_distance( ray, &bvh[ left_index ] ) {
-          if let Some( right_dis ) = aabb_distance( ray, &bvh[ left_index + 1 ] ) {
-            if left_dis < right_dis { // traverse left first
-              let (ld, tl) = traverse_bvh( ray, num_inf, bvh, shapes, left_index, max_dis );
-              if let Some( ( lshape_dis, lshape ) ) = tl {
-                let (rd, tr) = traverse_bvh( ray, num_inf, bvh, shapes, left_index + 1, lshape_dis );
-                if let Some( rhit ) = tr {
-                  (1 + ld + rd, Some( rhit ))
-                } else {
-                  (1 + ld + rd, Some( ( lshape_dis, lshape ) ))
-                }
-              } else { // left doesn't hit
-                let (rd, tr) = traverse_bvh( ray, num_inf, bvh, shapes, left_index + 1, max_dis );
-                (1 + ld + rd, tr)
+    if let Some( left_dis ) = aabb_distance( ray, &bvh[ left_index ], max_dis ) {
+      if let Some( right_dis ) = aabb_distance( ray, &bvh[ left_index + 1 ], max_dis ) {
+        if left_dis < right_dis { // traverse left first
+          let (ld, tl) = traverse_bvh( ray, num_inf, bvh, shapes, left_index, max_dis );
+          if let Some( ( lshape_dis, lshape ) ) = tl {
+            if lshape_dis < right_dis {
+              (1 + ld, Some( ( lshape_dis, lshape ) ) )
+            } else {
+              let (rd, tr) = traverse_bvh( ray, num_inf, bvh, shapes, left_index + 1, lshape_dis );
+              if let Some( rhit ) = tr {
+                (1 + ld + rd, Some( rhit ))
+              } else {
+                (1 + ld + rd, Some( ( lshape_dis, lshape ) ))
               }
-            } else { // traverse right first
-              let (rd, tr) = traverse_bvh( ray, num_inf, bvh, shapes, left_index + 1, max_dis );
-              if let Some( ( rshape_dis, rshape ) ) = tr {
-                let (ld, tl) = traverse_bvh( ray, num_inf, bvh, shapes, left_index, rshape_dis );
-                if let Some( lhit ) = tl {
-                  (1 + ld + rd, Some( lhit ))
-                } else {
-                  (1 + ld + rd, Some( ( rshape_dis, rshape ) ))
-                }
-              } else { // right doesn't hit
-                let (ld, tl) = traverse_bvh( ray, num_inf, bvh, shapes, left_index, max_dis );
-                (1 + ld + rd, tl)
+            }
+          } else { // left doesn't hit
+            let (rd, tr) = traverse_bvh( ray, num_inf, bvh, shapes, left_index + 1, max_dis );
+            (1 + ld + rd, tr)
+          }
+        } else { // traverse right first
+          let (rd, tr) = traverse_bvh( ray, num_inf, bvh, shapes, left_index + 1, max_dis );
+          if let Some( ( rshape_dis, rshape ) ) = tr {
+            if rshape_dis < left_dis {
+              (1 + rd, Some( ( rshape_dis, rshape ) ) )
+            } else {
+              let (ld, tl) = traverse_bvh( ray, num_inf, bvh, shapes, left_index, rshape_dis );
+              if let Some( lhit ) = tl {
+                (1 + ld + rd, Some( lhit ))
+              } else {
+                (1 + ld + rd, Some( ( rshape_dis, rshape ) ))
               }
             }
           } else { // right doesn't hit
             let (ld, tl) = traverse_bvh( ray, num_inf, bvh, shapes, left_index, max_dis );
-            (ld+1, tl)
+            (1 + ld + rd, tl)
           }
-        } else { // left doesn't hit
-          let (rd, tr) = traverse_bvh( ray, num_inf, bvh, shapes, left_index + 1, max_dis );
-          (rd+1, tr)
         }
-      } else {
-        (1, None)
+      } else { // right doesn't hit
+        let (ld, tl) = traverse_bvh( ray, num_inf, bvh, shapes, left_index, max_dis );
+        (ld+1, tl)
       }
-    } else {
-      (1, None)
+    } else { // left doesn't hit
+      let (rd, tr) = traverse_bvh_guarded( ray, num_inf, bvh, shapes, left_index + 1, max_dis );
+      (rd+1, tr)
     }
   }
 }
 
-fn traverse_bvh4< 'a > ( 
-      ray     : &Ray
-    , num_inf : usize
-    , bvh     : &Vec< BVHNode4 >
-    , shapes  : &'a Vec< Rc< dyn Tracable > >
-    , node_i  : usize
-    , max_dis : f32 ) -> (usize, Option< (f32, &'a Rc< dyn Tracable >) >) {
-  (0, None)
-}
-
-fn aabb_distance( ray : &Ray, bvh : &BVHNode ) -> Option< f32 > {
+fn aabb_distance( ray : &Ray, bvh : &BVHNode, max_dis : f32 ) -> Option< f32 > {
   /*match bvh {
     BVHNode::Leaf { bounds, .. } => bounds.hit( ray ),
     BVHNode::Node { bounds, .. } => bounds.hit( ray )
   }*/
-  bvh.bounds.hit( ray )
+  if let Some( h ) = bvh.bounds.hit( ray ) {
+    if h < max_dis {
+      Some( h )
+    } else {
+      None
+    }
+  } else {
+    None
+  }
 }
 
 fn closest< 'a >( a: Option< (f32, &'a Rc< dyn Tracable >) >
@@ -282,17 +286,6 @@ fn trace_shapes< 'a >( ray : &Ray
 
   best_hit
 }
-
-/*fn bvh_distance( ray : &Ray, bvh_node : &BVHNode ) -> Option< f32 > {
-  match bvh_node {
-    BVHNode::Leaf { bounds, .. } => {
-        bounds.hit( &ray )
-      },
-    BVHNode::Node { bounds, .. } => {
-        bounds.hit( &ray )
-      }
-  }
-}*/
 
 // Returns only true if a hit occurs and it occurs within at most `sqrt(d_sq)` units
 // `d_sq` is the square of the distance - for efficiency reasons

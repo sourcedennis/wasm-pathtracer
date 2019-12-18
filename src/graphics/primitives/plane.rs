@@ -6,7 +6,7 @@ use crate::graphics::AABB;
 /// An infinite plane in 3d
 ///
 /// It is characterised by a location and normal
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Plane {
   location : Vec3,
   normal   : Vec3,

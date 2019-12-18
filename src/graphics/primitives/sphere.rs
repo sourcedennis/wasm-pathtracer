@@ -4,7 +4,7 @@ use crate::graphics::{Color3, Material, AABB};
 use crate::graphics::ray::{Ray, Tracable, Bounded, Marchable, Hit};
 
 /// A Sphere primitive
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Sphere {
   /// The center of the sphere
   location : Vec3,
