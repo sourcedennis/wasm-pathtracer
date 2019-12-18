@@ -83,23 +83,27 @@ pub fn setup_scene_cloud100k( meshes : &HashMap< u32, Mesh > ) -> Scene {
 
 fn display_obj( meshes : &HashMap< u32, Mesh >, mesh_id : u32 ) -> Scene {
   let light = Light::point( Vec3::new( 0.0, 6.0, 2.0 ), Color3::new( 0.7, 0.7, 0.7 ), 50.0 );
+  let light2 = Light::point( Vec3::new( 0.0, 10.0, 12.0 ), Color3::new( 0.8, 0.8, 0.8 ), 30.0 );
   
   let mut shapes: Vec< Rc< dyn Tracable > > = Vec::new( );
 
   shapes.push( Rc::new( Plane::new( Vec3::new( 0.0, -1.0, 0.0 ), Vec3::new( 0.0, 1.0, 0.0 ), Material::reflect( Color3::new( 1.0, 1.0, 1.0 ), 0.1 ) ) ) );
   shapes.push( Rc::new( Plane::new( Vec3::new( 0.0, 0.0, 13.0 ), Vec3::new( 0.0, 0.0, -1.0 ), Material::diffuse( Color3::new( 1.0, 1.0, 1.0 ) ) ) ) );
   
+  //let mat = Material::refract( Vec3::new( 0.7, 0.2, 0.1 ), 1.5 );
+  let mat = Material::diffuse( Color3::new( 1.0, 0.4, 0.4 ) );
+
   if let Some( mesh ) = meshes.get( &mesh_id ) {
     for i in 0..(mesh.vertices.len()/3) {
       let mut triangle =
         Triangle::new( mesh.vertices[ i * 3 + 0 ] * 0.5, mesh.vertices[ i * 3 + 1 ] * 0.5, mesh.vertices[ i * 3 + 2 ] * 0.5
-                     , Material::diffuse( Color3::new( 1.0, 0.4, 0.4 ) ) );
+                     , mat.clone( ) );
       triangle = triangle.translate( Vec3::new( 0.0, 0.0, 5.0 ) );
       shapes.push( Rc::new( triangle ) );
     }
   }
 
-  Scene::new( Color3::BLACK, vec![ light ], shapes )
+  Scene::new( Color3::BLACK, vec![ light, light2 ], shapes )
 }
 
 pub fn setup_scene_march( ) -> MarchScene {

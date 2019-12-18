@@ -362,12 +362,19 @@ document.addEventListener( 'DOMContentLoaded', ev => {
 
       env.enableBvh( true );
 
-      /*fetch( 'torus.obj' ).then( f => f.text( ) ).then( s => {
+      fetch( 'bunny.obj' ).then( f => f.text( ) ).then( s => {
         let triangles = parseObj( s );
-        env.storeMesh( MeshId.MESH_TORUS, triangles );
-      } );*/
+        //env.storeMesh( MeshId.MESH_TORUS, triangles );
+        let numVertices = triangles.vertices.length / 3;
+        for ( let i = 0; i < numVertices; i++ ) {
+          triangles.vertices[ i * 3 + 0 ] *= 50;
+          triangles.vertices[ i * 3 + 1 ] *= 50;
+          triangles.vertices[ i * 3 + 2 ] *= -50;
+        }
+        env.storeMesh( MeshId.CLOUD_100, triangles );
+      } );
 
-      env.storeMesh( MeshId.CLOUD_100,  triangleCloud( 100 ) );
+      //env.storeMesh( MeshId.CLOUD_100,  triangleCloud( 100 ) );
       env.storeMesh( MeshId.CLOUD_10K,  triangleCloud( 10000 ) );
       env.storeMesh( MeshId.CLOUD_100K, triangleCloud( 100000 ) );
 

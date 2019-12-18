@@ -5,7 +5,7 @@ use graphics::primitives::{Triangle, Plane};
 use graphics::Material;
 use graphics::Color3;
 use graphics::ray::Tracable;
-use graphics::{BVHNode, build_bvh, verify_bvh, bvh_depth};
+use graphics::{BVHNode, BVHNode4, build_bvh, verify_bvh, bvh_depth};
 use math::Vec3;
 use std::rc::Rc;
 
@@ -13,6 +13,7 @@ use std::rc::Rc;
 use std::time::Instant;
 extern crate rand;
 use rand::Rng;
+use std::mem::size_of;
 
 fn main( ) {
   let mat = Material::diffuse( Color3::RED );
@@ -44,4 +45,9 @@ fn main( ) {
   println!( "BVH made {} {} {}", bvh.len( ), numinf, now.elapsed( ).as_millis( ) );
   println!( "Verified: {:?}", verify_bvh( &triangles, numinf, &bvh ) );
   println!( "BVH depth: {}", bvh_depth( &bvh ) );
+  println!( "X: {}", size_of::< BVHNode >() );
+
+  let now2 = Instant::now();
+  let bvh4 = BVHNode4::from_bvh( &bvh );
+  println!( "Done {} {}", now2.elapsed( ).as_millis( ), BVHNode4::depth( &bvh4 ) );
 }

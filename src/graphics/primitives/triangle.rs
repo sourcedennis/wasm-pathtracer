@@ -28,7 +28,7 @@ impl Triangle {
 fn is_approx_left_of( v0 : Vec3, v1 : Vec3, n : Vec3, p : Vec3 ) -> bool {
   let edge = v1 - v0;
   let v0p = p - v0;
-  return n.dot( edge.cross( v0p ) ) + EPSILON >= 0.0;
+  return n.dot( edge.cross( v0p ) ) + 0.1 * EPSILON >= 0.0;
 }
 
 impl Bounded for Triangle {
