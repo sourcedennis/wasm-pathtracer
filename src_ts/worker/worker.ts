@@ -10,8 +10,8 @@ declare function postMessage( msg : any ): void;
 let instance : any;
 let width    : number;
 let height   : number;
-let buffer  : Uint8Array;
-let pixels  : any[];
+let buffer   : Uint8Array;
+let pixels   : any[];
 
 const handlers = new MsgHandler( );
 handlers.register( 'init',          handleInit );
@@ -70,7 +70,7 @@ function handleInit( msg : MsgC2WInit ): void {
 }
 
 function handleCompute( msg : MsgC2WCompute ) {
-  instance.exports.compute( );
+  let numBVHHits = instance.exports.compute( );
   let resPtr = instance.exports.results( );
   let mem8 = new Uint8Array( instance.exports.memory.buffer, resPtr, width * height * 4 );
   for ( let i = 0; i < pixels.length; i++ ) {
@@ -82,7 +82,7 @@ function handleCompute( msg : MsgC2WCompute ) {
     buffer[ 4 * ( y * width + x ) + 2 ] = mem8[ 4 * ( y * width + x ) + 2 ];
     buffer[ 4 * ( y * width + x ) + 3 ] = mem8[ 4 * ( y * width + x ) + 3 ];
   }
-  postMessage( <MsgW2CComputeDone> { type: 'compute_done' } );
+  postMessage( <MsgW2CComputeDone> { type: 'compute_done', numBVHHits } );
 }
 
 function handleUpdateParams( msg : MsgC2WUpdateParams ) {

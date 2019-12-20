@@ -80,6 +80,8 @@ class Global {
   //   statistics from the last second of the form: [avg, min, max]
   private readonly _onRenderDone : XObservable< [number,number,number] >;
 
+  private readonly _onBvhHits    : XObservable< number >;
+
   private readonly _onBvhDone    : XObservable< number | undefined >;
 
   // Constructs a new managing environment for the provided on-screen canvas
@@ -94,6 +96,7 @@ class Global {
     this._canvasElem   = new CanvasElement( canvas, this._target );
     this._fpsTracker   = new FpsTracker( );
     this._onRenderDone = new XObservable( );
+    this._onBvhHits    = new XObservable( );
     this._onBvhDone    = new XObservable( );
     this._meshes       = new Map( );
     this._textures     = new Map( );
@@ -213,6 +216,10 @@ class Global {
     return this._onBvhDone.observable;
   }
 
+  public onBvhHits( ): Observable< number > {
+    return this._onBvhHits.observable;
+  }
+
   // Gets notified when the camera updates
   public onCameraUpdate( ): Observable< Camera > {
     return this._cameraController.onUpdate( );
@@ -283,7 +290,9 @@ class Global {
   // Upon completion a UInt8 RGBA pixel buffer is provided to the promise.
   private _render( ): Promise< void > {
     let startTime = Date.now( );
-    return this._raytracer.render( ).then( res => {
+    return this._raytracer.render( ).then( ( [ numHits, res ] ) => {
+      this._onBvhHits.next( numHits );
+
       this._target.update( res );
       let currTime = Date.now( );
       this._fpsTracker.add( currTime, currTime - startTime );
@@ -333,6 +342,16 @@ function triangleCloud( n : number ): Triangles {
   return new Triangles( vertices, vertices /* normals aren't used anyway */ );
 }
 
+function download( content : ArrayBuffer, name : string, type : string ) {
+  var a = document.createElement( 'a' );
+  var file = new Blob([content], {type: type});
+  a.href = URL.createObjectURL(file);
+  a.download = name;
+  document.body.appendChild( a );
+  a.click();
+  document.body.removeChild( a );
+}
+
 document.addEventListener( 'DOMContentLoaded', ev => {
   const canvas  = document.getElementsByTagName( 'canvas' )[ 0 ];
 
@@ -369,6 +388,13 @@ document.addEventListener( 'DOMContentLoaded', ev => {
           appSettings.ports.updateBVHTime.send( r );
         }
       } );
+      env.onBvhHits( ).subscribe( numHits => {
+         console.log( 'hits', numHits );
+      } );
+      // AABB center  Triangle Center
+      // 2349023      2505859
+      // 2698201      2776658
+      // 3-7%
 
       env.enableBvh( true );
 

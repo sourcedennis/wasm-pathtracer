@@ -7,7 +7,7 @@ export function parseObj( s : string ): Triangles {
   let normals : number[] = [];
   let facesVertices : number[] = [];
   let facesNormals  : number[] = [];
-  
+
   for ( let i = 0; i < lines.length; i++ ) {
     let l = lines[ i ];
     let segs = l.split( ' ' );

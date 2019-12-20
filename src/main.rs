@@ -41,10 +41,9 @@ fn main( ) {
   triangles.push( Rc::new( Plane::new( Vec3::new( 0.0, -1.0, 0.0 ), Vec3::new( 0.0, 1.0, 0.0 ), Material::reflect( Color3::new( 1.0, 1.0, 1.0 ), 0.1 ) ) ) );
   println!( "Triangles made" );
   let now = Instant::now();
-  let (numinf, bvh) = BVHNode::build( &mut triangles, 128 ); // 128 is the number of bins
+  let (numinf, bvh) = BVHNode::build( &mut triangles, 16 ); // 128 is the number of bins
   println!( "BVH made {} {}", bvh.len( ), numinf );
   println!( "Time: {}", now.elapsed( ).as_millis( ) );
   println!( "Verified: {:?}", BVHNode::verify( &triangles, numinf, &bvh ) );
   println!( "BVH depth: {}", BVHNode::depth( &bvh ) );
-  println!( "X: {}", size_of::< BVHNode >() );
 }

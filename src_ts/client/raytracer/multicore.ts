@@ -3,7 +3,8 @@ import { Camera }       from '@s/graphics/camera';
 import { Vec2 }         from '@s/math/vec2';
 import { Triangles }    from '@s/graphics/triangles';
 import { Msg, MsgC2WInit, MsgC2WUpdateCamera, MsgC2WUpdateParams
-       , MsgC2WUpdateScene, MsgC2WCompute, MsgC2WStoreMesh, MsgC2WStoreTexture, MsgC2WRebuildBVH, MsgC2WDisableBVH } from '@s/worker_messages';
+       , MsgC2WUpdateScene, MsgC2WCompute, MsgC2WStoreMesh, MsgC2WStoreTexture, MsgC2WRebuildBVH, MsgC2WDisableBVH
+       , MsgW2CComputeDone } from '@s/worker_messages';
 import { Raytracer }           from './index';
 import { shuffle, divideOver } from '../util';
 import { Texture }             from '@s/graphics/texture';
@@ -65,8 +66,8 @@ export class MulticoreRaytracer implements Raytracer {
     this._camera           = camera;
     this._hasUpdatedCamera = false;
 
-    let buffer    = new SharedArrayBuffer( width * height * 4 );
-    this._buffer8 = new Uint8Array( buffer );
+    let buffer       = new SharedArrayBuffer( width * height * 4 );
+    this._buffer8    = new Uint8Array( buffer );
 
 
     let onInit = new EmptyPromise< void >( );
@@ -95,7 +96,7 @@ export class MulticoreRaytracer implements Raytracer {
   }
 
   // See `Raytracer#render()`
-  public render( ): Promise< Uint8Array > {
+  public render( ): Promise< [ number, Uint8Array ] > {
     return this._queue.add( ( ) => {
       if ( this._hasUpdatedCamera ) {
         let cameraMsg : MsgC2WUpdateCamera = { type: 'update_camera', camera: this._camera };
@@ -106,8 +107,17 @@ export class MulticoreRaytracer implements Raytracer {
       let computeMsg : MsgC2WCompute = { type: 'compute' };
       this._workers.send( computeMsg );
 
-      return Promise.all( this._workers.awaitAll( 'compute_done' ) )
-        .then( ( ) => this._buffer8 );
+      return Promise.all< MsgW2CComputeDone | undefined >( this._workers.awaitAll( 'compute_done' ) )
+        .then( ps => {
+          let numHits = 0;
+          for ( let p of ps ) {
+            if ( p ) {
+              numHits += p.numBVHHits;
+            }
+          }
+
+          return [ numHits, this._buffer8 ];
+        } );
     } );
   }
 

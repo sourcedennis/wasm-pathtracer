@@ -4,6 +4,7 @@ use crate::math::Vec3;
 use std::rc::Rc;
 
 #[derive(Copy,Clone,Debug)]
+#[repr(align(32))]
 pub struct BVHNode {
   pub bounds     : AABB,
   pub left_first : u32,
@@ -64,11 +65,11 @@ fn build_bvh( shapes : &mut [Rc< dyn Tracable >], num_bins : usize ) -> (usize, 
     let reps_aabb = aabb( &reps ).unwrap( );
     dst[0] = subdivide( &mut dst, &mut reps, 0, rep_len, num_bins, &reps_aabb, &mut tmp_bins );
     //dst[0] = BVHNode::Leaf { bounds: aabb( &reps ).unwrap( ), offset: 0, size: reps.len( ) };
-  
+
     for i in 0..reps.len( ) {
       shapes[ i + num_infinite ] = reps[ i ].shape.clone( );
     }
-  
+
     (num_infinite, dst)
   }
 }
@@ -171,10 +172,10 @@ fn subdivide( dst            : &mut Vec< BVHNode >
       let bvh_left_id = dst.len( );
       dst.push( BVH_PLACEHOLDER );
       dst.push( BVH_PLACEHOLDER );
-  
+
       dst[ bvh_left_id + 0 ] = subdivide( dst, shapes, offset, split_index, num_bins, &l_aabb, tmp_bins );
       dst[ bvh_left_id + 1 ] = subdivide( dst, shapes, offset + split_index, length - split_index, num_bins, &r_aabb, tmp_bins );
-  
+
       //BVHNode::Node { bounds: l_aabb.join( &r_aabb ), left_index: bvh_left_id }
       BVHNode::node( l_aabb.join( &r_aabb ), bvh_left_id as u32 )
     },

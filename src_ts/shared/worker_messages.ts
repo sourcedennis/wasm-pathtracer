@@ -72,7 +72,8 @@ export interface MsgW2CInitDone extends Msg {
 }
 
 export interface MsgW2CComputeDone extends Msg {
-  type : 'compute_done'
+  type       : 'compute_done',
+  numBVHHits : number
 }
 
 export interface MsgW2CBvhDone extends Msg {

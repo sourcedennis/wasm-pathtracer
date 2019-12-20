@@ -12,7 +12,7 @@ export interface Raytracer {
   // With the current configuration of the raytracer, trace the rays within the
   // scene. The result is a RGBA pixel buffer.
   // (Alpha is always 255, but this is convienient when pushing Canvas ImageData)
-  render( ): Promise< Uint8Array >;
+  render( ): Promise< [ number, Uint8Array ] >;
 
   // Destroys the entire instance. Should always be called when disposing it.
   //   (Otherwise WebWorkers may remain lingering zombies)

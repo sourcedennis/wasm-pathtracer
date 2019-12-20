@@ -96,7 +96,7 @@ impl Tracable for Triangle {
       None
     }
   }
-  
+
   fn trace_simple( &self, ray: &Ray ) -> Option< f32 > {
     let v0 = self.v0;
     let v1 = self.v1;

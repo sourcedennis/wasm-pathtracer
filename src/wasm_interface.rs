@@ -10,11 +10,11 @@ use crate::graphics::ray::{Ray, Tracable};
 use crate::graphics::primitives::{Triangle};
 use crate::graphics::{Mesh, Texture, Color3};
 use crate::math::{Vec3};
+use crate::math;
 use crate::scenes::{setup_scene_cubesphere, setup_scene_bunny_low, setup_scene_bunny_high,
   setup_scene_cloud100, setup_scene_cloud10k, setup_scene_cloud100k, setup_scene_march};
 use crate::tracer::{MatRefract, Camera, trace_original_color, trace_original_depth, trace_original_bvh};
 use crate::marcher::{march_original_color, march_original_depth};
-
 use crate::graphics::{Material};
 
 // This file contains all the functions that are exposed through WebAssembly
@@ -416,7 +416,7 @@ pub fn disable_bvh( ) {
 ///   (in multi-threading different instances are assigned different pixels)
 #[wasm_bindgen]
 #[allow(dead_code)]
-pub fn compute( ) {
+pub fn compute( ) -> u32 {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
       // These two loops are extracted (instead of checking for `is_depth` in the body),
@@ -433,19 +433,24 @@ pub fn compute( ) {
 }
 
 /// Traces rays to obtain a depth buffer of the scene (for assigned pixels)
-fn compute_depth( conf : &mut Config ) {
+fn compute_depth( conf : &mut Config ) -> u32 {
   match conf.scene {
     SceneEnum::Trace( ref s ) => {
+      let mut u_sum = 0;
       for i in 0..(conf.num_rays as usize) {
         let (x, y) = conf.pixel_coords[ i ];
 
-        let res = trace_original_depth( s, &conf.rays[ i ] );
+        let (u, res) = trace_original_depth( s, &conf.rays[ i ] );
+        let v = 1.0 - math::clamp( ( res - 5.0 ) / 12.0, 0.0, 1.0 );
 
-        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
-        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
-        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * v ) as u8;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * v ) as u8;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * v ) as u8;
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
+
+        u_sum += u;
       }
+      u_sum as u32
     },
     SceneEnum::March( ref s ) => {
       for i in 0..(conf.num_rays as usize) {
@@ -458,23 +463,36 @@ fn compute_depth( conf : &mut Config ) {
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
       }
+      0 // marching has no BVH. Yet?
     }
   }
 }
 
-fn compute_bvh( conf : &mut Config ) {
+fn compute_bvh( conf : &mut Config ) -> u32 {
   match conf.scene {
     SceneEnum::Trace( ref s ) => {
+      let mut d_sum : u32 = 0;
+
       for i in 0..(conf.num_rays as usize) {
         let (x, y) = conf.pixel_coords[ i ];
 
-        let res = trace_original_bvh( s, &conf.rays[ i ] );
+        let d = trace_original_bvh( s, &conf.rays[ i ] );
+        let v = math::clamp( d as f32 / 200.0, 0.0, 1.0 );
+
+        let res =
+          if v < 0.5 { // blur from green to blue
+            Color3::new( 0.0, 1.0 - v * 2.0, v * 2.0 )
+          } else { // blur from blue to red
+            Color3::new( ( v - 0.5 ) * 2.0, 0.0, 1.0 - ( v - 0.5 ) * 2.0 )
+          };
+        d_sum += d as u32;
 
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
       }
+      d_sum
     },
     SceneEnum::March( ref s ) => {
       for i in 0..(conf.num_rays as usize) {
@@ -487,27 +505,32 @@ fn compute_bvh( conf : &mut Config ) {
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
       }
+      0 // No BVH for marching. Yet?
     }
   }
 }
 
 /// Traces rays to obtain a diffuse buffer of the scene (for assigned pixels)
-fn compute_color( conf : &mut Config ) {
+fn compute_color( conf : &mut Config ) -> u32 {
   let mat_stack = &mut conf.mat_stack;
 
   match conf.scene {
     SceneEnum::Trace( ref s ) => {
+      let mut u_sum = 0;
       for i in 0..(conf.num_rays as usize) {
         let (x, y) = conf.pixel_coords[ i ];
 
         // Note that `mat_stack` already contains the "material" for air (so now it's a stack of air)
-        let res = trace_original_color( s, &conf.rays[ i ], conf.max_ray_depth, mat_stack );
+        let (u, res) = trace_original_color( s, &conf.rays[ i ], conf.max_ray_depth, mat_stack );
 
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
+
+        u_sum += u;
       }
+      u_sum as u32
     },
     SceneEnum::March( ref s ) => {
       for i in 0..(conf.num_rays as usize) {
@@ -521,6 +544,7 @@ fn compute_color( conf : &mut Config ) {
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
       }
+      0 // No BVH for marching. Yet?
     }
   }
 }

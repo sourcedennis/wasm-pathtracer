@@ -63,7 +63,7 @@ impl Scene {
 
   // Casts a shadow ray from the `hit_loc` to all lights in the scene
   // All non-occluded lights are returned by this function
-  pub fn shadow_ray( &self, hit_loc : &Vec3, light_id : usize ) -> Option< LightHit > {
+  pub fn shadow_ray( &self, hit_loc : &Vec3, light_id : usize ) -> (usize, Option< LightHit >) {
     match &self.lights[ light_id ] {
       Light::Point( ref l ) => {
         let mut to_light : Vec3 = l.location - *hit_loc;
@@ -71,22 +71,24 @@ impl Scene {
         to_light = to_light / distance_sq.sqrt( );
 
         let shadow_ray = Ray::new( *hit_loc + EPSILON * to_light, to_light );
-        if !is_hit_within_sq( self.trace_simple( &shadow_ray ), distance_sq ) {
-          Some( LightHit { dir: to_light, color: l.color, distance_sq: Some( distance_sq ) } )
+        let (d,res) = self.trace_simple( &shadow_ray );
+        if !is_hit_within_sq( res, distance_sq ) {
+          (d, Some( LightHit { dir: to_light, color: l.color, distance_sq: Some( distance_sq ) } ) )
         } else {
-          None
+          (d, None)
         }
       },
       Light::Directional( ref l ) => {
         let to_light   = -l.direction;
         let shadow_ray = Ray::new( *hit_loc + EPSILON * to_light, to_light );
-        if let Some( _h ) = self.trace_simple( &shadow_ray ) {
+        let (d, res) = self.trace_simple( &shadow_ray );
+        if let Some( _h ) = res {
           // A shadow occludes the lightsource
-          None
+          (d, None)
         } else {
           // Note that no attenuation applies here, as the lightsource is at an
           // infinite distance anyway
-          Some( LightHit { dir: to_light, color: l.color.to_vec3( ), distance_sq: None } )
+          (d, Some( LightHit { dir: to_light, color: l.color.to_vec3( ), distance_sq: None } ))
         }
       },
       Light::Spot( ref l ) => {
@@ -99,15 +101,16 @@ impl Scene {
 
         if angle_diff < l.angle {
           let shadow_ray = Ray::new( *hit_loc + EPSILON * to_light, to_light );
-          if !is_hit_within_sq( self.trace_simple( &shadow_ray ), distance_sq ) {
-            Some( LightHit { dir: to_light, color: l.color, distance_sq: Some( distance_sq ) } )
+          let (d, res) = self.trace_simple( &shadow_ray );
+          if !is_hit_within_sq( res, distance_sq ) {
+            ( d, Some( LightHit { dir: to_light, color: l.color, distance_sq: Some( distance_sq ) } ) )
           } else {
             // It's occluded
-            None
+            ( d, None )
           }
         } else {
           // Outside the spot area
-          None
+          ( 0, None )
         }
       }
     }
@@ -122,11 +125,12 @@ impl Scene {
     }
   }
 
-  pub fn trace_simple( &self, ray : &Ray ) -> Option< f32 > {
-    if let (_, Some( (dis, _) )) = self.trace_g( ray ) {
-      Some( dis )
+  pub fn trace_simple( &self, ray : &Ray ) -> (usize, Option< f32 >) {
+    let (d, res) = self.trace_g( ray );
+    if let Some( (dis, _) ) = res {
+      (d, Some( dis ))
     } else {
-      None
+      (d, None)
     }
   }
 
@@ -145,17 +149,17 @@ impl Scene {
 }
 
 #[allow(dead_code)]
-fn traverse_bvh_guarded< 'a >( 
+fn traverse_bvh_guarded< 'a >(
       ray     : &Ray
     , num_inf : usize
     , bvh     : &[BVHNode]
     , shapes  : &'a [Rc< dyn Tracable >]
     , node_i  : usize
     , max_dis : f32 ) -> (usize, Option< (f32, &'a Rc< dyn Tracable >) >) {
-  
-  let node = &bvh[ node_i ];
+
+  let node   = &bvh[ node_i ];
   let bounds = &node.bounds;
-  
+
   if let Some( h ) = bounds.hit( ray ) {
     if h < max_dis {
       traverse_bvh( ray, num_inf, bvh, shapes, node_i, max_dis )
@@ -175,7 +179,7 @@ fn traverse_bvh< 'a >(
     , shapes  : &'a [Rc< dyn Tracable >]
     , node_i  : usize
     , max_dis : f32 ) -> (usize, Option< (f32, &'a Rc< dyn Tracable >) >) {
-  
+
   let node = &bvh[ node_i ];
   if node.count != 0 { // leaf
     let offset = node.left_first as usize;
