@@ -6,6 +6,7 @@ use graphics::Material;
 use graphics::Color3;
 use graphics::ray::Tracable;
 use graphics::{BVHNode};
+use graphics::{collapse_bvh4};
 use math::Vec3;
 use std::rc::Rc;
 
@@ -41,9 +42,13 @@ fn main( ) {
   triangles.push( Rc::new( Plane::new( Vec3::new( 0.0, -1.0, 0.0 ), Vec3::new( 0.0, 1.0, 0.0 ), Material::reflect( Color3::new( 1.0, 1.0, 1.0 ), 0.1 ) ) ) );
   println!( "Triangles made" );
   let now = Instant::now();
-  let (numinf, bvh) = BVHNode::build( &mut triangles, 16 ); // 128 is the number of bins
-  println!( "BVH made {} {}", bvh.len( ), numinf );
+  let (numinf, mut bvh) = BVHNode::build( &mut triangles, 32 ); // 128 is the number of bins
+  println!( "BVH made. Count={}. #infinite-shapes={}", BVHNode::node_count( &bvh ), numinf );
   println!( "Time: {}", now.elapsed( ).as_millis( ) );
   println!( "Verified: {:?}", BVHNode::verify( &triangles, numinf, &bvh ) );
   println!( "BVH depth: {}", BVHNode::depth( &bvh ) );
+
+  collapse_bvh4( &mut bvh );
+  println!( "Collapsed. Count={}, Depth={}", BVHNode::node_count( &bvh ), BVHNode::depth( &bvh ) );
+  println!( "Verified: {:?}", BVHNode::verify( &triangles, numinf, &bvh ) );
 }

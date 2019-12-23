@@ -82,7 +82,8 @@ class Global {
 
   private readonly _onBvhHits    : XObservable< number >;
 
-  private readonly _onBvhDone    : XObservable< number | undefined >;
+  // Produces a tuple with the build time and node count
+  private readonly _onBvhDone    : XObservable< [number, number] | undefined >;
 
   // Constructs a new managing environment for the provided on-screen canvas
   public constructor( canvas : HTMLCanvasElement, mod : WebAssembly.Module ) {
@@ -212,7 +213,8 @@ class Global {
     return this._onRenderDone.observable;
   }
 
-  public onBvhDone( ): Observable< number | undefined > {
+  // Produces a tuple with build time and node count
+  public onBvhDone( ): Observable< [number, number] | undefined > {
     return this._onBvhDone.observable;
   }
 
@@ -232,10 +234,11 @@ class Global {
     this._cameraController.set( this._cameraController.get( ) );
   }
 
+  // If the BVH is enabled, it is rebuilt
   private _rebuildBvh( ): void {
     if ( this._config.hasBvh ) {
-      this._raytracer.rebuildBVH( 16 ).then( res => {
-        this._onBvhDone.next( res );
+      this._raytracer.rebuildBVH( 32 ).then( ( [time, numNodes] ) => {
+        this._onBvhDone.next( [time, numNodes] );
       } );
     }
   }
@@ -255,7 +258,7 @@ class Global {
           c.renderType,
           c.rayDepth,
           this._cameraController.get( ),
-          8
+          4 // TODO: Set this to 8
         );
     } else {
       tracer = new SinglecoreRaytracer(
@@ -321,6 +324,7 @@ function sceneCamera( sceneId : number ): Camera {
   }
 }
 
+// Generates triangles in the box [-3,3]^3 around the origin
 function triangleCloud( n : number ): Triangles {
   let vertices = new Float32Array( 9 * n );
 
@@ -339,17 +343,7 @@ function triangleCloud( n : number ): Triangles {
     vertices[ i * 9 + 7 ] = centerY + Math.random( ) * 0.5;
     vertices[ i * 9 + 8 ] = centerZ + Math.random( ) * 0.5;
   }
-  return new Triangles( vertices, vertices /* normals aren't used anyway */ );
-}
-
-function download( content : ArrayBuffer, name : string, type : string ) {
-  var a = document.createElement( 'a' );
-  var file = new Blob([content], {type: type});
-  a.href = URL.createObjectURL(file);
-  a.download = name;
-  document.body.appendChild( a );
-  a.click();
-  document.body.removeChild( a );
+  return new Triangles( vertices );
 }
 
 document.addEventListener( 'DOMContentLoaded', ev => {
@@ -376,20 +370,23 @@ document.addEventListener( 'DOMContentLoaded', ev => {
       appSettings.ports.updateHasBVH.subscribe( b => env.enableBvh( b ) );
 
       env.onRenderDone( ).subscribe( res => appSettings.ports.updatePerformance.send( res ) );
-      env.onCameraUpdate( ).subscribe( c => {
-         //app.ports.updateCamera.send( { x: c.location.x, y: c.location.y, z: c.location.z, rotX: c.rotX, rotY: c.rotY } )
-         console.log( c );
-      } );
+      // env.onCameraUpdate( ).subscribe( c => {
+      //    //app.ports.updateCamera.send( { x: c.location.x, y: c.location.y, z: c.location.z, rotX: c.rotX, rotY: c.rotY } )
+      //    //console.log( c );
+      // } );
       env.triggerCameraUpdate( );
 
       env.onBvhDone( ).subscribe( r => {
         console.log( 'BVH Done!', r );
         if ( typeof r !== 'undefined' ) {
-          appSettings.ports.updateBVHTime.send( r );
+          let [buildTime, nodeCount] = r;
+          console.log( nodeCount );
+          appSettings.ports.updateBVHTime.send( buildTime );
+          appSettings.ports.updateBVHCount.send( nodeCount );
         }
       } );
       env.onBvhHits( ).subscribe( numHits => {
-         console.log( 'hits', numHits );
+        appSettings.ports.updateBVHHits.send( numHits );
       } );
       // AABB center  Triangle Center
       // 2349023      2505859

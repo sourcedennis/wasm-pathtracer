@@ -107,12 +107,12 @@ export class SinglecoreRaytracer implements Raytracer {
   // }
 
   // See `Raytracer#rebuildBVH()`
-  public rebuildBVH( numBins : number ): Promise< number > {
+  public rebuildBVH( numBins : number ): Promise< [ number, number ] > {
     return this._ins.then( ins => {
       let exps = <any> ins.exports;
       let time = Date.now( );
-      exps.rebuild_bvh( numBins );
-      return Date.now( ) - time;
+      let numNodes = exps.rebuild_bvh( numBins );
+      return [ Date.now( ) - time, numNodes ];
     } );
   }
 
@@ -128,7 +128,8 @@ export class SinglecoreRaytracer implements Raytracer {
   public storeMesh( id : number, mesh : Triangles ): void {
     this._ins.then( ins => {
       let exps = <any> ins.exports;
-      exps.allocate_mesh( id, mesh.vertices.length );
+      let numVertices = mesh.vertices.length / 3;
+      exps.allocate_mesh( id, numVertices );
       let ptrVertices = exps.mesh_vertices( id );
       let dst = new Float32Array( exps.memory.buffer, ptrVertices, mesh.vertices.length );
       dst.set( mesh.vertices );

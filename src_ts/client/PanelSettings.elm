@@ -6,8 +6,9 @@ import Html            exposing
 import Html.Attributes as Attr exposing (class, id, style, type_)
 import Html.Events     exposing (onClick, onInput, onBlur, on, keyCode)
 import String          exposing (fromInt, toInt)
-import Maybe           exposing (withDefault)
+import Maybe           exposing (withDefault, andThen)
 import Json.Decode     as D
+import String          exposing (length)
 
 -- This is the GUI sidepanel with which runtime parameters of the raytracer
 -- can be set. The TypeScript instance listens to the ports provided by this
@@ -23,11 +24,13 @@ port updateRunning         : Bool -> Cmd msg
 port updateMulticore       : Bool -> Cmd msg
 port updateViewport        : (Int, Int) -> Cmd msg
 -- Incoming ports
--- render times: (avg, min, max)
 port updatePerformance     : ( (Int, Int, Int) -> msg ) -> Sub msg
--- camera properties: (x, y, z, rotX, rotY)
--- port updateCamera          : ( Camera -> msg ) -> Sub msg
+-- Number of milliseconds it took to build the BVH
 port updateBVHTime         : ( Int -> msg ) -> Sub msg
+-- Number of nodes in the BVH
+port updateBVHCount        : ( Int -> msg ) -> Sub msg
+-- Number of ray hits with BVH nodes in the current frame
+port updateBVHHits         : ( Int -> msg ) -> Sub msg
 
 -- The state of the side panel
 type alias Model =
@@ -37,8 +40,8 @@ type alias Model =
   , performanceAvg  : Int
   , performanceMin  : Int
   , performanceMax  : Int
-  , hasBVH          : Bool
-  , bvhTime         : Maybe Int
+
+  , bvh             : BVHModel
 
   , width           : Int
   , height          : Int
@@ -53,11 +56,20 @@ type alias Model =
   , isRunning       : Bool
   }
 
+type BVHModel
+  = BVHModel { time     : Maybe Int
+             , numNodes : Maybe Int
+             , numHits  : Maybe Int
+             }
+  | BVHNoModel
+
 type RenderType = RenderColor | RenderDepth | RenderBvh
 
 type Msg
   = UpdatePerformance Int Int Int -- render times: avg min max
   | UpdateBVHTime Int -- construction time in ms
+  | UpdateBVHCount Int -- #nodes in the BVH
+  | UpdateBVHHits Int  -- #hits with rays to BVHs
   | SelectType RenderType
   | SelectReflectionDepth Int
   | SelectMulticore Bool
@@ -81,7 +93,9 @@ subscriptions : Model -> Sub Msg
 subscriptions _ =
   Sub.batch
     [ updatePerformance <| \(x,y,z) -> UpdatePerformance x y z
-    , updateBVHTime <| \x -> UpdateBVHTime x
+    , updateBVHTime <| UpdateBVHTime
+    , updateBVHCount <| UpdateBVHCount
+    , updateBVHHits <| UpdateBVHHits
     ]
 
 init : Model
@@ -91,8 +105,7 @@ init =
   , performanceAvg  = 0
   , performanceMin  = 0
   , performanceMax  = 0
-  , hasBVH          = True
-  , bvhTime         = Nothing
+  , bvh             = BVHModel { time = Nothing, numNodes = Nothing, numHits = Nothing }
   , width           = 512
   , height          = 512
   , sentWidth       = 512
@@ -104,12 +117,23 @@ init =
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
+    SelectBVH b ->
+      let bvh =
+            if b then
+              BVHModel { time = Nothing, numNodes = Nothing, numHits = Nothing }
+            else
+              BVHNoModel
+      in
+      ( { model | bvh = bvh }, updateHasBVH b )
+    UpdateBVHTime t ->
+      ( { model | bvh = updateBVH msg model.bvh }, Cmd.none )
+    UpdateBVHCount h ->
+      ( { model | bvh = updateBVH msg model.bvh }, Cmd.none )
+    UpdateBVHHits h ->
+      ( { model | bvh = updateBVH msg model.bvh }, Cmd.none )
+
     UpdatePerformance avg low high ->
       ( { model | performanceAvg = avg, performanceMin = low, performanceMax = high }, Cmd.none )
-    -- UpdateCamera c ->
-    --   ( { model | camera = c }, Cmd.none )
-    UpdateBVHTime t ->
-      ( { model | bvhTime = Just t }, Cmd.none )
     SelectType t ->
       let rtInt =
             case t of
@@ -122,8 +146,6 @@ update msg model =
       ( { model | reflectionDepth = t }, updateReflectionDepth t )
     SelectMulticore b ->
       ( { model | isMulticore = b }, updateMulticore b )
-    SelectBVH b ->
-      ( { model | hasBVH = b, bvhTime = Nothing }, updateHasBVH b )
     SelectRunning b ->
       ( { model | isRunning = b }, updateRunning b )
     ChangeWidth w ->
@@ -140,6 +162,22 @@ update msg model =
         ( { model | width = w, height = h }, Cmd.none )
     Skip -> ( model, Cmd.none )
 
+
+updateBVH : Msg -> BVHModel -> BVHModel
+updateBVH msg bvh =
+  case bvh of
+    BVHModel bm ->
+      case msg of
+        UpdateBVHTime t ->
+          BVHModel { bm | time = Just t }
+        UpdateBVHCount c ->
+          BVHModel { bm | numNodes = Just c }
+        UpdateBVHHits h ->
+          BVHModel { bm | numHits = Just h }
+        _ ->
+          BVHModel bm
+    BVHNoModel ->
+      BVHNoModel
 
 view : Model -> Html Msg
 view m =
@@ -200,22 +238,38 @@ view m =
             [ text "Multi (8)" ]
         ]
     , div []
-        [ span [] [ text "BVH" ]
-        , buttonC m.hasBVH (SelectBVH True)
-            [ class "choice", class "left", style "width" "90pt" ]
-            [ text "Enabled" ]
-        , buttonC (not m.hasBVH) (SelectBVH False)
-            [ class "choice", class "right", style "width" "90pt" ]
-            [ text "Disabled" ]
-        , div []
-            [ span []
-                [ text "Build time: "
-                , case m.bvhTime of
-                    Just t -> text ( fromInt t ++ "ms" )
-                    Nothing -> text "- ms"
-                ]
-            ]
-        ]
+        ( [ span [] [ text "BVH" ]
+          , buttonC (m.bvh /= BVHNoModel) (SelectBVH True)
+              [ class "choice", class "left", style "width" "90pt" ]
+              [ text "Enabled" ]
+          , buttonC (m.bvh == BVHNoModel) (SelectBVH False)
+              [ class "choice", class "right", style "width" "90pt" ]
+              [ text "Disabled" ]
+          ]
+          ++
+          case m.bvh of
+            BVHNoModel -> []
+            BVHModel bm ->
+              [ div []
+                  [ span []
+                      [ text "Build time: "
+                      , text (withDefault "- ms" (bm.time |> andThen (\t -> Just (fromInt t ++ " ms")) ))
+                      ]
+                  ]
+              , div []
+                  [ span []
+                      [ text "Node count: "
+                      , text (withDefault "-" (bm.numNodes |> andThen (Just << niceInt)))
+                      ]
+                  ]
+              , div []
+                  [ span []
+                      [ text "Hit count: "
+                      , text (withDefault "-" (bm.numHits |> andThen (Just << niceInt)))
+                      ]
+                  ]
+              ]
+        )
     , div []
         [ span [] [ text "Viewport" ]
         , table []
@@ -263,10 +317,20 @@ onEnterDown m =
   in
   on "keydown" (D.map enterMsg keyCode)
 
+niceInt : Int -> String
+niceInt n =
+  if n < 1000 then
+    fromInt n
+  else
+    niceInt (n // 1000) ++ "," ++ pad3z (fromInt (modBy 1000 n))
 
-
--- showXYZ : Float -> Float -> Float -> String
--- showXYZ x y z = R.round 2 x ++ "; " ++ R.round 2 y ++ "; " ++ R.round 2 z
+-- Pad zeroes *before* the string, such that it has 3 characters
+pad3z : String -> String
+pad3z s =
+  case length s of
+    1 -> "00" ++ s
+    2 -> "0" ++ s
+    _ -> s
 
 -- A checkbox button. It's checked if the provided boolean is true
 -- Only unchecked button have the event assigned

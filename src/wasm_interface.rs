@@ -379,15 +379,16 @@ pub fn notify_texture_loaded( _id : u32 ) -> bool {
   }
 }
 
+// Rebuilds the BVH, and returns the number of nodes
 #[wasm_bindgen]
 #[allow(dead_code)]
-pub fn rebuild_bvh( num_bins : u32 ) {
+pub fn rebuild_bvh( num_bins : u32 ) -> u32 {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
       match conf.scene {
         SceneEnum::Trace( ref mut s ) =>
           s.rebuild_bvh( num_bins as usize ),
-        SceneEnum::March( ref mut s ) => { }
+        SceneEnum::March( ref mut s ) => 0
       }
     } else {
       panic!( "init not called" )

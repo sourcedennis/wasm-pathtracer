@@ -101,7 +101,8 @@ function handleUpdateScene( msg : MsgC2WUpdateScene ) {
 
 function handleStoreMesh( msg : MsgC2WStoreMesh ) {
   let exps = <any> instance.exports;
-  exps.allocate_mesh( msg.id, msg.mesh.vertices.length );
+  let numVertices = msg.mesh.vertices.length / 3;
+  exps.allocate_mesh( msg.id, numVertices );
   let ptrVertices = exps.mesh_vertices( msg.id );
   let dst = new Float32Array( exps.memory.buffer, ptrVertices, msg.mesh.vertices.length );
   dst.set( msg.mesh.vertices );
@@ -120,8 +121,8 @@ function handleStoreTexture( msg : MsgC2WStoreTexture ) {
 
 function handleRebuildBvh( msg : MsgC2WRebuildBVH ) {
   let exps = <any> instance.exports;
-  exps.rebuild_bvh( msg.numBins );
-  postMessage( <MsgW2CBvhDone> { type: 'bvh_done' } );
+  let numNodes = exps.rebuild_bvh( msg.numBins );
+  postMessage( <MsgW2CBvhDone> { type: 'bvh_done', numNodes } );
 }
 
 function handleDisableBvh( msg : MsgC2WRebuildBVH ) {

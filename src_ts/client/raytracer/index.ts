@@ -44,7 +44,10 @@ export interface Raytracer {
   // method.
   storeTexture( id : number, texture : Texture ): void;
 
-  rebuildBVH( numBinds : number ): Promise< number >;
+  // Rebuilds the BVH. Returns a tuple, with elements:
+  // - The time (ins ms) it took to build the BVH
+  // - The number of nodes in the BVH
+  rebuildBVH( numBinds : number ): Promise< [ number, number ] >;
 
   disableBVH( ): void;
 }
