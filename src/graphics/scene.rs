@@ -1,16 +1,15 @@
-use crate::graphics::{Color3};
+use crate::graphics::{Color3, AABB};
 use crate::graphics::ray::{Ray, Hit, Tracable};
 use crate::graphics::lights::Light;
 use crate::math::{Vec3, EPSILON};
-use crate::graphics::{BVHNode};
-use crate::graphics::{collapse_bvh4};
+use crate::graphics::{BVHNode, BVHNode4};
 use std::f32::INFINITY;
 use std::rc::Rc;
 
 enum BVHEnum {
   BVH2( usize, Vec< BVHNode > ),
   // Same representation as 2-way. Skip a check when bounds.x_min=INFINITE
-  BVH4( usize, Vec< BVHNode > ),
+  BVH4( usize, Vec< BVHNode4 > ),
   //BVH4( usize, Vec< BVHNode4 > ),
   BVHNone
 }
@@ -48,14 +47,19 @@ impl Scene {
   }
 
   // Rebuilds the BVH, and returns the number of nodes
-  pub fn rebuild_bvh( &mut self, num_bins : usize ) -> u32 {
-    let (num_inf, mut bvh) = BVHNode::build( &mut self.shapes, num_bins );
+  pub fn rebuild_bvh( &mut self, num_bins : usize, is_bvh4 : bool ) -> u32 {
+    let (num_inf, bvh) = BVHNode::build( &mut self.shapes, num_bins );
     let mut num_nodes = 0;
 
-    if true {
-      collapse_bvh4( &mut bvh );
-      num_nodes = BVHNode::node_count( &bvh );
-      self.bvh = BVHEnum::BVH4( num_inf, bvh );
+    if is_bvh4 {
+      let bvh4 = BVHNode4::collapse( &bvh );
+      num_nodes = BVHNode4::node_count( &bvh4 );
+      
+      if !BVHNode4::verify( &self.shapes, num_inf, &bvh4) {
+        panic!( "WHAT" );
+      }
+      
+      self.bvh = BVHEnum::BVH4( num_inf, bvh4 );
     } else {
       num_nodes = BVHNode::node_count( &bvh );
       self.bvh = BVHEnum::BVH2( num_inf, bvh );
@@ -215,8 +219,8 @@ fn traverse_bvh< 'a >(
   } else { // node
     let left_index = node.left_first as usize;
 
-    if let Some( left_dis ) = aabb_distance( ray, &bvh[ left_index ], max_dis ) {
-      if let Some( right_dis ) = aabb_distance( ray, &bvh[ left_index + 1 ], max_dis ) {
+    if let Some( left_dis ) = aabb_distance( ray, &bvh[ left_index ].bounds, max_dis ) {
+      if let Some( right_dis ) = aabb_distance( ray, &bvh[ left_index + 1 ].bounds, max_dis ) {
         if left_dis < right_dis { // traverse left first
           let (ld, tl) = traverse_bvh( ray, num_inf, bvh, shapes, left_index, max_dis );
           if let Some( ( lshape_dis, lshape ) ) = tl {
@@ -268,17 +272,15 @@ fn traverse_bvh< 'a >(
 fn traverse_bvh4_guarded< 'a >(
       ray     : &Ray
     , num_inf : usize
-    , bvh     : &[BVHNode]
+    , bvh     : &[BVHNode4]
     , shapes  : &'a [Rc< dyn Tracable >]
     , node_i  : usize
     , max_dis : f32 ) -> (usize, Option< (f32, &'a Rc< dyn Tracable >) >) {
 
   let node   = &bvh[ node_i ];
+  let bounds = &node.bounds;
 
-  if node.is_leaf( ) || node.is_skipped( ) {
-    // Skip the check
-    traverse_bvh4( ray, num_inf, bvh, shapes, node_i, max_dis )
-  } else if let Some( h ) = node.bounds.hit( ray ) {
+  if let Some( h ) = bounds.hit( ray ) {
     if h < max_dis {
       let (t2, res) = traverse_bvh4( ray, num_inf, bvh, shapes, node_i, max_dis );
       (t2 + 1, res)
@@ -296,7 +298,7 @@ fn traverse_bvh4_guarded< 'a >(
 fn traverse_bvh4< 'a >(
       ray         : &Ray
     , num_inf     : usize
-    , bvh         : &[BVHNode]
+    , bvh         : &[BVHNode4]
     , shapes      : &'a [Rc< dyn Tracable >]
     , node_i      : usize
     , mut max_dis : f32 ) -> (usize, Option< (f32, &'a Rc< dyn Tracable >) >) {
@@ -305,18 +307,19 @@ fn traverse_bvh4< 'a >(
 
   if node.is_leaf( ) { // leaf
     let offset = node.left_first as usize;
-    let size = node.count as usize;
+    let size = node.num_shapes( ) as usize;
 
     (1, trace_shapes_md( ray, &shapes[(num_inf+offset)..(num_inf+offset+size)], max_dis ))
   } else { // node
-    let mut child_ids = [0,0,0,0];
-    let mut num_children  = bvh_children( &mut child_ids, bvh, node_i );
-    // assert( num_children <= 4 )
-
+    let mut num_children  = bvh[ node_i ].num_children( );
+    let mut left_i        = bvh[ node_i ].left_first as usize;
+    
+    let mut child_ids       = [ 0, 0, 0, 0 ];
     let mut child_distances = [INFINITY, INFINITY, INFINITY, INFINITY];
 
     for i in 0..num_children {
-      child_distances[ i ] = aabb_distance_inf( ray, &bvh[ child_ids[ i ] ] );
+      child_ids[ i ] = left_i + i;
+      child_distances[ i ] = aabb_distance_inf( ray, &bvh[ child_ids[ i ] ].bounds );
     }
 
     let (mut num_traversed, mut res) = ( num_children, None );
@@ -332,18 +335,17 @@ fn traverse_bvh4< 'a >(
 
       if child_distances[ i ] > max_dis {
         return ( num_traversed, res );
+      } else if child_distances[ i ] >= 0.0 {
+        let ( nt2, res2 ) = traverse_bvh4( ray, num_inf, bvh, shapes, child_ids[ i ], max_dis );
+  
+        if let Some( ( d, _ ) ) = res2 {
+          max_dis = d;
+          res = res2;
+        }
+        num_traversed += nt2;
       }
-
-      let ( nt2, res2 ) = traverse_bvh4( ray, num_inf, bvh, shapes, child_ids[ i ], max_dis );
-
-      if let Some( ( d, _ ) ) = res2 {
-        max_dis = d;
-        res = res2;
-      }
-      num_traversed += nt2;
 
       num_children -= 1;
-
       child_ids[ i ] = child_ids[ num_children ];
       child_distances[ i ] = child_distances[ num_children ];
     }
@@ -352,46 +354,16 @@ fn traverse_bvh4< 'a >(
   }
 }
 
-fn bvh_children( dst : &mut [usize; 4], bvh : &[BVHNode], node_i : usize ) -> usize {
-  let left_i = bvh[ node_i ].left_first as usize;
-  let right_i = left_i + 1;
-
-  let mut j = 0;
-
-  if bvh[ left_i ].is_leaf( )  || !bvh[ left_i ].is_skipped( ) {
-    dst[ j ] = left_i;
-    j += 1;
-  } else { // left is skipped
-    j += bvh_children( dst, bvh, left_i );
-  }
-  
-  if bvh[ right_i ].is_leaf( ) || !bvh[ right_i ].is_skipped( ) {
-    dst[ j ] = right_i;
-    j += 1;
-  } else { // right is skipped
-    let mut dst2 = [0,0,0,0];
-
-    let j2 = bvh_children( &mut dst2, bvh, right_i );
-
-    for i in 0..j2 {
-      dst[ j + i ] = dst2[ i ];
-    }
-    j += j2;
-  }
-
-  j
-}
-
-fn aabb_distance_inf( ray : &Ray, bvh : &BVHNode ) -> f32 {
-  if let Some( h ) = bvh.bounds.hit( ray ) {
+fn aabb_distance_inf( ray : &Ray, aabb : &AABB ) -> f32 {
+  if let Some( h ) = aabb.hit( ray ) {
     h
   } else {
-    INFINITY
+    -INFINITY
   }
 }
 
-fn aabb_distance( ray : &Ray, bvh : &BVHNode, max_dis : f32 ) -> Option< f32 > {
-  if let Some( h ) = bvh.bounds.hit( ray ) {
+fn aabb_distance( ray : &Ray, aabb : &AABB, max_dis : f32 ) -> Option< f32 > {
+  if let Some( h ) = aabb.hit( ray ) {
     if h < max_dis {
       Some( h )
     } else {

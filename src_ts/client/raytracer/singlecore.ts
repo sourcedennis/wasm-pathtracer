@@ -107,11 +107,11 @@ export class SinglecoreRaytracer implements Raytracer {
   // }
 
   // See `Raytracer#rebuildBVH()`
-  public rebuildBVH( numBins : number ): Promise< [ number, number ] > {
+  public rebuildBVH( numBins : number, isBVH4 : boolean ): Promise< [ number, number ] > {
     return this._ins.then( ins => {
       let exps = <any> ins.exports;
       let time = Date.now( );
-      let numNodes = exps.rebuild_bvh( numBins );
+      let numNodes = exps.rebuild_bvh( numBins, isBVH4 ? 1 : 0 );
       return [ Date.now( ) - time, numNodes ];
     } );
   }

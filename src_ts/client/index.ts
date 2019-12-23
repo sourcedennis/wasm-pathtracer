@@ -35,7 +35,8 @@ class Config {
   // An unique id for hard-coded scenes. (Defined in the Rust part)
   public sceneId          : number;
 
-  public hasBvh           : boolean;
+  // 0=disabled. 1=bvh2. 2=bvh4
+  public bvhState         : number;
 
   public constructor( ) {
     this.width            = 512;
@@ -45,7 +46,7 @@ class Config {
     this.rayDepth         = 1;
     this.renderType       = 0; // 0=color
     this.sceneId          = 0;
-    this.hasBvh           = false;
+    this.bvhState         = 0;
   }
 }
 
@@ -122,9 +123,9 @@ class Global {
     this._fpsTracker.clear( );
   }
 
-  public enableBvh( b : boolean ): void {
-    this._config.hasBvh = b;
-    if ( b ) {
+  public setBvhState( s : number ): void {
+    this._config.bvhState = s;
+    if ( s != 0 ) {
       this._rebuildBvh( );
     } else {
       this._raytracer.disableBVH( );
@@ -236,8 +237,8 @@ class Global {
 
   // If the BVH is enabled, it is rebuilt
   private _rebuildBvh( ): void {
-    if ( this._config.hasBvh ) {
-      this._raytracer.rebuildBVH( 32 ).then( ( [time, numNodes] ) => {
+    if ( this._config.bvhState != 0 ) {
+      this._raytracer.rebuildBVH( 32, this._config.bvhState == 2 ).then( ( [time, numNodes] ) => {
         this._onBvhDone.next( [time, numNodes] );
       } );
     }
@@ -367,7 +368,7 @@ document.addEventListener( 'DOMContentLoaded', ev => {
       appSettings.ports.updateMulticore.subscribe( r => env.updateMulticore( r ) );
       //appSettings.ports.updateScene.subscribe( sid => env.updateScene( sid ) );
       appSettings.ports.updateViewport.subscribe( vp => env.updateViewport( vp[ 0 ], vp[ 1 ] ) );
-      appSettings.ports.updateHasBVH.subscribe( b => env.enableBvh( b ) );
+      appSettings.ports.updateBVHState.subscribe( b => env.setBvhState( b ) );
 
       env.onRenderDone( ).subscribe( res => appSettings.ports.updatePerformance.send( res ) );
       // env.onCameraUpdate( ).subscribe( c => {
@@ -393,7 +394,7 @@ document.addEventListener( 'DOMContentLoaded', ev => {
       // 2698201      2776658
       // 3-7%
 
-      env.enableBvh( true );
+      env.setBvhState( 1 ); // 2-way BVH
 
       fetch( 'bunny.obj' ).then( f => f.text( ) ).then( s => {
         let triangles = parseObj( s );

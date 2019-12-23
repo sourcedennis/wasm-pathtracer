@@ -18,7 +18,7 @@ import String          exposing (length)
 -- So, some "magic number" (for RenderType) are passed to TypeScript
 -- Outgoing ports
 port updateRenderType      : Int -> Cmd msg
-port updateHasBVH          : Bool -> Cmd msg
+port updateBVHState        : Int -> Cmd msg
 port updateReflectionDepth : Int -> Cmd msg
 port updateRunning         : Bool -> Cmd msg
 port updateMulticore       : Bool -> Cmd msg
@@ -60,6 +60,7 @@ type BVHModel
   = BVHModel { time     : Maybe Int
              , numNodes : Maybe Int
              , numHits  : Maybe Int
+             , isBvh4   : Bool
              }
   | BVHNoModel
 
@@ -74,6 +75,7 @@ type Msg
   | SelectReflectionDepth Int
   | SelectMulticore Bool
   | SelectBVH Bool
+  | DisabledBVH
   | SelectRunning Bool -- Play/Pause (Play=True)
   | ChangeWidth Int
   | ChangeHeight Int
@@ -105,7 +107,7 @@ init =
   , performanceAvg  = 0
   , performanceMin  = 0
   , performanceMax  = 0
-  , bvh             = BVHModel { time = Nothing, numNodes = Nothing, numHits = Nothing }
+  , bvh             = BVHModel { time = Nothing, numNodes = Nothing, numHits = Nothing, isBvh4 = False }
   , width           = 512
   , height          = 512
   , sentWidth       = 512
@@ -119,12 +121,11 @@ update msg model =
   case msg of
     SelectBVH b ->
       let bvh =
-            if b then
-              BVHModel { time = Nothing, numNodes = Nothing, numHits = Nothing }
-            else
-              BVHNoModel
+            BVHModel { time = Nothing, numNodes = Nothing, numHits = Nothing, isBvh4 = b }
       in
-      ( { model | bvh = bvh }, updateHasBVH b )
+      ( { model | bvh = bvh }, updateBVHState (if b then 2 else 1) )
+    DisabledBVH ->
+      ( { model | bvh = BVHNoModel }, updateBVHState 0 )
     UpdateBVHTime t ->
       ( { model | bvh = updateBVH msg model.bvh }, Cmd.none )
     UpdateBVHCount h ->
@@ -239,12 +240,15 @@ view m =
         ]
     , div []
         ( [ span [] [ text "BVH" ]
-          , buttonC (m.bvh /= BVHNoModel) (SelectBVH True)
-              [ class "choice", class "left", style "width" "90pt" ]
-              [ text "Enabled" ]
-          , buttonC (m.bvh == BVHNoModel) (SelectBVH False)
-              [ class "choice", class "right", style "width" "90pt" ]
-              [ text "Disabled" ]
+          , buttonC (isBvh2 m.bvh) (SelectBVH False)
+              [ class "choice", class "left", style "width" "70pt", style "padding-left" "27pt" ]
+              [ text "2-way" ]
+          , buttonC (isBvh4 m.bvh) (SelectBVH True)
+              [ class "choice", class "middle", style "width" "70pt", style "padding-left" "27pt" ]
+              [ text "4-way" ]
+          , buttonC (m.bvh == BVHNoModel) DisabledBVH
+              [ class "choice", class "right", style "width" "70pt", style "padding-left" "27pt" ]
+              [ text "Off" ]
           ]
           ++
           case m.bvh of
@@ -331,6 +335,18 @@ pad3z s =
     1 -> "00" ++ s
     2 -> "0" ++ s
     _ -> s
+
+isBvh2 : BVHModel -> Bool
+isBvh2 m =
+  case m of
+    BVHModel bm -> not bm.isBvh4
+    _           -> False
+
+isBvh4 : BVHModel -> Bool
+isBvh4 m =
+  case m of
+    BVHModel bm -> bm.isBvh4
+    _           -> False
 
 -- A checkbox button. It's checked if the provided boolean is true
 -- Only unchecked button have the event assigned

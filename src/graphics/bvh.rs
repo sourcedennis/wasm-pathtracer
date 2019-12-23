@@ -2,7 +2,6 @@ use crate::graphics::AABB;
 use crate::graphics::ray::Tracable;
 use crate::math::Vec3;
 use std::rc::Rc;
-use std::f32::INFINITY;
 
 #[derive(Copy,Clone,Debug)]
 #[repr(align(32))]
@@ -23,11 +22,6 @@ impl BVHNode {
 
   pub fn is_leaf( &self ) -> bool {
     self.count > 0
-  }
-
-  // When interpreted as a 4-way BVH, is the bounds-check of this node skipped?
-  pub fn is_skipped( &self ) -> bool {
-    self.bounds.x_min == INFINITY
   }
 
   pub fn build( shapes : &mut [Rc< dyn Tracable >], num_bins : usize ) -> (usize, Vec< BVHNode >) {
@@ -54,8 +48,6 @@ impl BVHNode {
   fn count_node( nodes : &Vec< BVHNode >, i : usize ) -> usize {
     if nodes[ i ].count > 0 { // leaf node
       1
-    } else if nodes[ i ].bounds.x_min == INFINITY { // node whose check is skipped
-      BVHNode::count_node( nodes, nodes[ i ].left_first as usize ) + BVHNode::count_node( nodes, nodes[ i ].left_first as usize + 1 )
     } else {
       1 + BVHNode::count_node( nodes, nodes[ i ].left_first as usize ) + BVHNode::count_node( nodes, nodes[ i ].left_first as usize + 1 )
     }
@@ -108,14 +100,13 @@ fn verify_bvh( shapes : &[Rc< dyn Tracable >], num_infinite : usize, bvh : &Vec<
   let a = verify_bvh_bounds( shapes, num_infinite, bvh, 0 ).is_some( );
   let mut contained = vec![false; shapes.len()-num_infinite];
   verify_bvh_contains( &mut contained, bvh, 0 );
-  let b = verify_bvh_child_count( bvh, 0 ).is_some( );
 
   let mut has_all = true;
   for c in contained {
     has_all = has_all && c;
   }
 
-  a && has_all && b
+  a && has_all
 }
 
 fn verify_bvh_contains( contained : &mut [bool], bvh : &Vec< BVHNode >, i : usize ) {
@@ -134,15 +125,13 @@ fn verify_bvh_bounds( shapes : &[Rc< dyn Tracable >], num_infinite : usize, bvh 
   let n = &bvh[ i ];
   let bounds = &n.bounds;
 
-  if !n.is_leaf( ) { // node
+  if n.count == 0 { // node
     let left_index = n.left_first as usize;
 
     if let Some( lb ) = verify_bvh_bounds( shapes, num_infinite, bvh, left_index ) {
       if let Some( rb ) = verify_bvh_bounds( shapes, num_infinite, bvh, left_index + 1 ) {
         let b = lb.join( &rb );
-        if n.is_skipped( ) {
-          Some( b )
-        } else if bounds.contains( &b ) {
+        if bounds.contains( &b ) {
           Some( *bounds )
         } else {
           None
@@ -172,62 +161,14 @@ fn verify_bvh_bounds( shapes : &[Rc< dyn Tracable >], num_infinite : usize, bvh 
   }
 }
 
-fn verify_bvh_child_count( bvh : &Vec< BVHNode >, node_i : usize ) -> Option< usize > {
-  if bvh[ node_i ].is_leaf( ) {
-    Some( 1 )
-  } else if bvh[ node_i ].is_skipped( ) {
-    let c1 = verify_bvh_child_count( bvh, bvh[ node_i ].left_first as usize );
-    let c2 = verify_bvh_child_count( bvh, ( bvh[ node_i ].left_first + 1 ) as usize );
-
-    if let Some( c1v ) = c1 {
-      if let Some( c2v ) = c2 {
-        if c1v + c2v <= 4 {
-          Some( c1v + c2v )
-        } else {
-          None
-        }
-      } else {
-        None
-      }
-    } else {
-      None
-    }
-  } else {
-    let c1 = verify_bvh_child_count( bvh, bvh[ node_i ].left_first as usize );
-    let c2 = verify_bvh_child_count( bvh, ( bvh[ node_i ].left_first + 1 ) as usize );
-
-    if let Some( c1v ) = c1 {
-      if let Some( c2v ) = c2 {
-        if c1v + c2v <= 4 {
-          Some( 1 )
-        } else {
-          None
-        }
-      } else {
-        None
-      }
-    } else {
-      None
-    }
-  }
-}
-
 fn bvh_depth( nodes : &Vec< BVHNode > ) -> u32 {
   depth_rec( nodes, 0 )
 }
 
 fn depth_rec( nodes : &Vec< BVHNode >, i : usize ) -> u32 {
-  /*match nodes[ i ] {
-    BVHNode::Leaf { .. } => 0,
-    BVHNode::Node { left_index, .. } =>
-    1 + depth_rec( nodes, left_index ).max( depth_rec( nodes, left_index + 1 ) )
-  }*/
   let n = &nodes[ i ];
   if n.count != 0 { // leaf
     0
-  } else if n.bounds.x_min == INFINITY { // Node whose check is skipped
-    let left = n.left_first;
-    depth_rec( nodes, left as usize ).max( depth_rec( nodes, left as usize + 1 ) )
   } else { // Node whose check is kept
     let left = n.left_first;
     1 + depth_rec( nodes, left as usize ).max( depth_rec( nodes, left as usize + 1 ) )

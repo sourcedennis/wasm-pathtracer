@@ -47,7 +47,7 @@ export interface Raytracer {
   // Rebuilds the BVH. Returns a tuple, with elements:
   // - The time (ins ms) it took to build the BVH
   // - The number of nodes in the BVH
-  rebuildBVH( numBinds : number ): Promise< [ number, number ] >;
+  rebuildBVH( numBinds : number, isBVH4 : boolean ): Promise< [ number, number ] >;
 
   disableBVH( ): void;
 }

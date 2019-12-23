@@ -121,7 +121,7 @@ function handleStoreTexture( msg : MsgC2WStoreTexture ) {
 
 function handleRebuildBvh( msg : MsgC2WRebuildBVH ) {
   let exps = <any> instance.exports;
-  let numNodes = exps.rebuild_bvh( msg.numBins );
+  let numNodes = exps.rebuild_bvh( msg.numBins, msg.isBVH4 ? 1 : 0 );
   postMessage( <MsgW2CBvhDone> { type: 'bvh_done', numNodes } );
 }
 

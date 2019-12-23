@@ -173,13 +173,13 @@ export class MulticoreRaytracer implements Raytracer {
   }
 
   // See `Raytracer#rebuildBVH()`
-  public rebuildBVH( numBins : number ): Promise< [ number, number ] > {
+  public rebuildBVH( numBins : number, isBVH4 : boolean ): Promise< [ number, number ] > {
     let duration = Number.MAX_SAFE_INTEGER;
     let numNodes = 0;
 
     this._queue.add( ( ) => {
       let startTime = Date.now( );
-      let msg : MsgC2WRebuildBVH = { type: 'rebuild_bvh', numBins };
+      let msg : MsgC2WRebuildBVH = { type: 'rebuild_bvh', numBins, isBVH4 };
       this._workers.send1( msg );
       return this._workers.await1( 'bvh_done' ).then( m => {
         duration = Date.now( ) - startTime;
@@ -191,7 +191,7 @@ export class MulticoreRaytracer implements Raytracer {
       } );
     } );
     return this._queue.add( ( ) => {
-      let msg : MsgC2WRebuildBVH = { type: 'rebuild_bvh', numBins };
+      let msg : MsgC2WRebuildBVH = { type: 'rebuild_bvh', numBins, isBVH4 };
       this._workers.send( msg );
       return Promise.all( this._workers.awaitAll( 'bvh_done' ) )
         .then( ( ) => [ duration, numNodes ] );

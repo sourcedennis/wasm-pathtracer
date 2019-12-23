@@ -53,7 +53,8 @@ export interface MsgC2WStoreTexture extends Msg {
 
 export interface MsgC2WRebuildBVH extends Msg {
   type    : 'rebuild_bvh',
-  numBins : number
+  numBins : number,
+  isBVH4  : boolean
 }
 
 export interface MsgC2WDisableBVH extends Msg {

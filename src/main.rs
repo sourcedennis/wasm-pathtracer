@@ -5,8 +5,7 @@ use graphics::primitives::{Triangle, Plane};
 use graphics::Material;
 use graphics::Color3;
 use graphics::ray::Tracable;
-use graphics::{BVHNode};
-use graphics::{collapse_bvh4};
+use graphics::{BVHNode, BVHNode4};
 use math::Vec3;
 use std::rc::Rc;
 
@@ -48,7 +47,7 @@ fn main( ) {
   println!( "Verified: {:?}", BVHNode::verify( &triangles, numinf, &bvh ) );
   println!( "BVH depth: {}", BVHNode::depth( &bvh ) );
 
-  collapse_bvh4( &mut bvh );
-  println!( "Collapsed. Count={}, Depth={}", BVHNode::node_count( &bvh ), BVHNode::depth( &bvh ) );
-  println!( "Verified: {:?}", BVHNode::verify( &triangles, numinf, &bvh ) );
+  let bvh4 = BVHNode4::collapse( &bvh );
+  println!( "Collapsed. Count={}, Depth={}", BVHNode4::node_count( &bvh4 ), BVHNode4::depth( &bvh4 ) );
+  println!( "Verified: {:?}", BVHNode4::verify( &triangles, numinf, &bvh4 ) );
 }
