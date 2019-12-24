@@ -15,15 +15,16 @@ use std::fmt;
 /// The direction should be of unit length
 #[derive(Clone,Copy)]
 pub struct Ray {
-  pub origin : Vec3,
-  pub dir    : Vec3
+  pub origin  : Vec3,
+  pub dir     : Vec3,
+  pub inv_dir : Vec3
 }
 
 impl Ray {
   /// Constructs a new `Ray`
   /// The direction should be of unit length
   pub fn new( origin : Vec3, dir : Vec3 ) -> Ray {
-    Ray { origin, dir }
+    Ray { origin, dir, inv_dir: Vec3::new( 1.0 / dir.x, 1.0 / dir.y, 1.0 / dir.z ) }
   }
 
   /// Evaluates the ray at the provided distance from its origin
