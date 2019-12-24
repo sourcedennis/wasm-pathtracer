@@ -38,13 +38,13 @@ export class SinglecoreRaytracer implements Raytracer {
     // This interface is demanded by the Rust compiler (or wasm_bindgen), it seems
     let importObject =
       { env: { abort: ( ) => console.log( 'abort' ) } };
-      
+
     this._ins = WebAssembly.instantiate( mod, importObject ).then( ins => <any> ins ).then( ins => {
       // Pass stuff across WASM boundary (only primitives allowed)
       ins.exports.init( width, height, sceneId, renderType, rayDepth
                       , camera.location.x, camera.location.y, camera.location.z
                       , camera.rotX, camera.rotY );
-      
+
       // Now put the assigned pixels into WASM memory. These are all pixels in the viewport
       //   (as it is only single-threaded)
       let rayPtr = ins.exports.ray_store( width * height );
@@ -62,11 +62,12 @@ export class SinglecoreRaytracer implements Raytracer {
   }
 
   // See `Raytracer#render()`
-  public render( ): Promise< Uint8Array > {
+  public render( ): Promise< [ number, Uint8Array ] > {
     return this._ins.then( ins => {
       let exps = <any> ins.exports;
-      exps.compute( );
-      return new Uint8Array( exps.memory.buffer, exps.results( ), this._width * this._height * 4 );
+      let numBvhHits = exps.compute( );
+      let arr = new Uint8Array( exps.memory.buffer, exps.results( ), this._width * this._height * 4 );
+      return [ numBvhHits, arr ];
     } );
   }
 
@@ -102,16 +103,16 @@ export class SinglecoreRaytracer implements Raytracer {
 
   // See `Raytracer#updateViewport()`
   // public updateViewport( width : number, height : number ) {
-  //   console.error( 'TODO: Update viewport' ); 
+  //   console.error( 'TODO: Update viewport' );
   // }
 
   // See `Raytracer#rebuildBVH()`
-  public rebuildBVH( numBins : number ): Promise< number > {
+  public rebuildBVH( numBins : number, isBVH4 : boolean ): Promise< [ number, number ] > {
     return this._ins.then( ins => {
       let exps = <any> ins.exports;
       let time = Date.now( );
-      exps.rebuild_bvh( numBins );
-      return Date.now( ) - time;
+      let numNodes = exps.rebuild_bvh( numBins, isBVH4 ? 1 : 0 );
+      return [ Date.now( ) - time, numNodes ];
     } );
   }
 
@@ -127,7 +128,8 @@ export class SinglecoreRaytracer implements Raytracer {
   public storeMesh( id : number, mesh : Triangles ): void {
     this._ins.then( ins => {
       let exps = <any> ins.exports;
-      exps.allocate_mesh( id, mesh.vertices.length );
+      let numVertices = mesh.vertices.length / 3;
+      exps.allocate_mesh( id, numVertices );
       let ptrVertices = exps.mesh_vertices( id );
       let dst = new Float32Array( exps.memory.buffer, ptrVertices, mesh.vertices.length );
       dst.set( mesh.vertices );

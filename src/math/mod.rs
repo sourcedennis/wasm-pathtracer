@@ -4,7 +4,7 @@ mod vec3;
 pub use vec2::Vec2;
 pub use vec3::Vec3;
 
-// Some random math utilities
+// Some arbitrary math utilities
 
 pub static EPSILON : f32 = 0.0002;
 

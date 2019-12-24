@@ -1,12 +1,12 @@
 use crate::math::{Vec2, Vec3};
 use crate::graphics::Material;
-use crate::graphics::ray::{Ray, Tracable, Hit};
+use crate::graphics::ray::{Ray, Tracable, Bounded, Hit};
 use crate::graphics::AABB;
 
 /// An infinite plane in 3d
 ///
 /// It is characterised by a location and normal
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Plane {
   location : Vec3,
   normal   : Vec3,
@@ -16,6 +16,18 @@ pub struct Plane {
 impl Plane {
   pub fn new( location : Vec3, normal : Vec3, mat : Material ) -> Plane {
     Plane { location, normal, mat }
+  }
+}
+
+impl Bounded for Plane {
+  fn location( &self ) -> Option< Vec3 > {
+    // Planes are infinite, and thus have no location
+    None
+  }
+
+  fn aabb( &self ) -> Option< AABB > {
+    // Planes are infinite, and thus have no AABB
+    None
   }
 }
 
@@ -75,15 +87,5 @@ impl Tracable for Plane {
     } else {
       Some( t )
     }
-  }
-
-  fn location( &self ) -> Option< Vec3 > {
-    // Planes are infinite, and thus have no location
-    None
-  }
-
-  fn aabb( &self ) -> Option< AABB > {
-    // Planes are infinite, and thus have no AABB
-    None
   }
 }

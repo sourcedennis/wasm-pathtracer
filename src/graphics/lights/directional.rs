@@ -1,7 +1,7 @@
 use crate::graphics::Color3;
 use crate::math::Vec3;
 
-/// A point light
+/// A directional light
 pub struct DirectionalLight {
   // Direction from the light source to the scene
   // For directional lights this is the same for every point in the scene

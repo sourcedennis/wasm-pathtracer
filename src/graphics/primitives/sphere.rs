@@ -1,11 +1,12 @@
+// External imports
 use std::f32::consts::PI;
+// Local imports
 use crate::math::{Vec2, Vec3};
-use crate::graphics::Material;
-use crate::graphics::ray::{Ray, Tracable, Hit};
-use crate::graphics::AABB;
+use crate::graphics::{Color3, Material, PointMaterial, AABB};
+use crate::graphics::ray::{Ray, Tracable, Bounded, Marchable, Hit};
 
 /// A Sphere primitive
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Sphere {
   /// The center of the sphere
   location : Vec3,
@@ -16,6 +17,19 @@ pub struct Sphere {
 impl Sphere {
   pub fn new( location : Vec3, radius : f32, mat : Material ) -> Sphere {
     Sphere { location, radius, mat }
+  }
+}
+
+impl Bounded for Sphere {
+  fn location( &self ) -> Option< Vec3 > {
+    Some( self.location )
+  }
+
+  fn aabb( &self ) -> Option< AABB > {
+    let l = self.location;
+    let r = self.radius;
+
+    Some( AABB::new1( l.x - r, l.y - r, l.z - r, l.x + r, l.y + r, l.z + r ) )
   }
 }
 
@@ -105,15 +119,24 @@ impl Tracable for Sphere {
 
     Some( t )
   }
+}
 
-  fn location( &self ) -> Option< Vec3 > {
-    Some( self.location )
+impl Marchable for Sphere {
+  fn sdf( &self, p : &Vec3 ) -> f32 {
+    let p2 = *p - self.location;
+    p2.len( ) - self.radius
   }
 
-  fn aabb( &self ) -> Option< AABB > {
-    let l = self.location;
-    let r = self.radius;
-
-    Some( AABB::new1( l.x - r, l.y - r, l.z - r, l.x + r, l.y + r, l.z + r ) )
+  fn color( &self, _p : &Vec3 ) -> Color3 {
+    if let Some( m ) = self.mat.evaluate_simple( ) {
+      match m {
+        PointMaterial::Reflect { color, .. } => {
+          color
+        }
+        _ => Color3::BLACK
+      }
+    } else {
+      Color3::BLACK
+    }
   }
 }

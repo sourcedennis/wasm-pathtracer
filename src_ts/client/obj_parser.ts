@@ -7,7 +7,7 @@ export function parseObj( s : string ): Triangles {
   let normals : number[] = [];
   let facesVertices : number[] = [];
   let facesNormals  : number[] = [];
-  
+
   for ( let i = 0; i < lines.length; i++ ) {
     let l = lines[ i ];
     let segs = l.split( ' ' );
@@ -40,16 +40,12 @@ export function parseObj( s : string ): Triangles {
   }
 
   let outVertices = new Float32Array( facesVertices.length * 3 );
-  let outNormals  = new Float32Array( facesNormals.length * 3 );
 
   for ( let i = 0; i < facesVertices.length; i++ ) {
     outVertices[ i * 3 + 0 ] = vertices[ facesVertices[ i ] * 3 + 0 ];
     outVertices[ i * 3 + 1 ] = vertices[ facesVertices[ i ] * 3 + 1 ];
     outVertices[ i * 3 + 2 ] = vertices[ facesVertices[ i ] * 3 + 2 ];
-    outNormals[ i * 3 + 0 ]  = normals[ facesNormals[ i ] * 3 + 0 ];
-    outNormals[ i * 3 + 1 ]  = normals[ facesNormals[ i ] * 3 + 1 ];
-    outNormals[ i * 3 + 2 ]  = normals[ facesNormals[ i ] * 3 + 2 ];
   }
 
-  return new Triangles( outVertices, outNormals );
+  return new Triangles( outVertices );
 }

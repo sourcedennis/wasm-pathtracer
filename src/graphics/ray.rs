@@ -1,14 +1,17 @@
-use crate::math::Vec3;
-use crate::graphics::{PointMaterial};
-use crate::graphics::{AABB};
+// External imports
 use std::fmt;
+// Local imports
+use crate::math::Vec3;
+use crate::graphics::{PointMaterial, AABB, Color3};
 
 // A module with `Ray` and `Hit` structures, that are useful for raytracing
 //
 // Exports:
 // * Ray
 // * Hit
+// * Bounded
 // * Tracable
+// * Marchable
 
 /// A half-line in 3-dimensional space
 ///
@@ -16,15 +19,16 @@ use std::fmt;
 /// The direction should be of unit length
 #[derive(Clone,Copy)]
 pub struct Ray {
-  pub origin : Vec3,
-  pub dir    : Vec3
+  pub origin  : Vec3,
+  pub dir     : Vec3,
+  pub inv_dir : Vec3
 }
 
 impl Ray {
   /// Constructs a new `Ray`
   /// The direction should be of unit length
   pub fn new( origin : Vec3, dir : Vec3 ) -> Ray {
-    Ray { origin, dir }
+    Ray { origin, dir, inv_dir: Vec3::new( 1.0 / dir.x, 1.0 / dir.y, 1.0 / dir.z ) }
   }
 
   /// Evaluates the ray at the provided distance from its origin
@@ -57,8 +61,33 @@ impl Hit {
   }
 }
 
+/// A shape which has a location and bounds in 3D space
+/// Also objects that are knowingly infinite have this trait,
+///   but should return `None` for both location and AABB.
+/// (So, basically, only immaterial objects lack this trait)
+pub trait Bounded : fmt::Debug {
+  /// Returns the location of the object in 3D space
+  /// 
+  /// The location of an object is arbitrary, and is up to the implementer to
+  ///   determine. However, it is advised to implement such that mass is
+  ///   appropriately divided over the 3 axes.
+  /// Thus, the default implementation takes the center of the object's AABB,
+  ///   which should reasonably approximate it.
+  fn location( &self ) -> Option< Vec3 > {
+    if let Some( b ) = self.aabb( ) {
+      Some( b.center( ) )
+    } else {
+      None
+    }
+  }
+
+  /// Returns None if the primitive has no bounding-box, which happens when it is
+  /// infinite. (Such as planes)
+  fn aabb( &self ) -> Option< AABB >;
+}
+
 /// A trait for physical objects, with which a ray of light can be intersected
-pub trait Tracable : fmt::Debug {
+pub trait Tracable : Bounded {
   /// Traces a ray with limited properties evaluated at the hit.
   /// That is, no normal or materials are included. Only its distance from the
   ///   ray origin.
@@ -73,10 +102,19 @@ pub trait Tracable : fmt::Debug {
   /// Traces a ray. At the hit point the normal and material are evaluated and
   ///   included in the returned hit.
   fn trace( &self, ray : &Ray ) -> Option< Hit >;
+}
 
-  fn location( &self ) -> Option< Vec3 >;
+/// A trait for objects that can be ray-marched
+/// 
+/// The surface of ray-marched objects is typically difficult to represent.
+/// Instead, they are represented by a Signed Distance Function.
+pub trait Marchable : Bounded {
+  /// The Signed Distance from point `p` to the object
+  fn sdf( &self, p : &Vec3 ) -> f32;
 
-  // Returns None if the primitive has no bounding-box, which happens when it is
-  // infinite. (Such as planes)
-  fn aabb( &self ) -> Option< AABB >;
+  /// The color of the object at point `p`.
+  /// 
+  /// If `p` is not inside the object, it is advised to return the color of the
+  /// surface point closest to `p`.
+  fn color( &self, p : &Vec3 ) -> Color3;
 }

@@ -10,7 +10,8 @@ import { CameraController }            from './input/camera_controller';
 import { Raytracer }                   from './raytracer';
 import { SinglecoreRaytracer }         from './raytracer/singlecore';
 import { MulticoreRaytracer }          from './raytracer/multicore';
-import { Elm }                         from './SidePanel.elm';
+import { Elm as ElmScene }             from './PanelScenes.elm';
+import { Elm as ElmSettings }          from './PanelSettings.elm';
 import { parseObj }                    from './obj_parser';
 import { MeshId }                      from './meshes';
 import { Msg } from '@s/worker_messages';
@@ -29,22 +30,23 @@ class Config {
   public isMulticore      : boolean;
   // The maximum number of ray bounces
   public rayDepth         : number;
-  // True if rendering a depth-buffer. Diffuse-buffer otherwise
+  // 0=color, 1=depth, 2=bvh
   public renderType       : number;
   // An unique id for hard-coded scenes. (Defined in the Rust part)
   public sceneId          : number;
 
-  public hasBvh           : boolean;
+  // 0=disabled. 1=bvh2. 2=bvh4
+  public bvhState         : number;
 
   public constructor( ) {
     this.width            = 512;
     this.height           = 512;
     this.isRunning        = true;
-    this.isMulticore      = false;
+    this.isMulticore      = true;
     this.rayDepth         = 1;
-    this.renderType       = 0; // 0=color
+    this.renderType       = 0; // 0=color, 1=depth, 2=bvh
     this.sceneId          = 0;
-    this.hasBvh           = false;
+    this.bvhState         = 0;
   }
 }
 
@@ -79,7 +81,10 @@ class Global {
   //   statistics from the last second of the form: [avg, min, max]
   private readonly _onRenderDone : XObservable< [number,number,number] >;
 
-  private readonly _onBvhDone    : XObservable< number | undefined >;
+  private readonly _onBvhHits    : XObservable< number >;
+
+  // Produces a tuple with the build time and node count
+  private readonly _onBvhDone    : XObservable< [number, number] | undefined >;
 
   // Constructs a new managing environment for the provided on-screen canvas
   public constructor( canvas : HTMLCanvasElement, mod : WebAssembly.Module ) {
@@ -93,6 +98,7 @@ class Global {
     this._canvasElem   = new CanvasElement( canvas, this._target );
     this._fpsTracker   = new FpsTracker( );
     this._onRenderDone = new XObservable( );
+    this._onBvhHits    = new XObservable( );
     this._onBvhDone    = new XObservable( );
     this._meshes       = new Map( );
     this._textures     = new Map( );
@@ -117,9 +123,11 @@ class Global {
     this._fpsTracker.clear( );
   }
 
-  public enableBvh( b : boolean ): void {
-    this._config.hasBvh = b;
-    if ( b ) {
+  // Sets the BVH mode
+  // 0=disabled. 1=bvh2. 2=bvh4
+  public setBvhState( s : number ): void {
+    this._config.bvhState = s;
+    if ( s != 0 ) {
       this._rebuildBvh( );
     } else {
       this._raytracer.disableBVH( );
@@ -174,12 +182,13 @@ class Global {
     this._rebuildBvh( );
   }
 
+  // Updates the size of the viewport of the renderer
   public updateViewport( width : number, height : number ) {
     this._config.width = width;
     this._config.height = height;
     this._target       = new RenderTarget( this._config.width, this._config.height );
     this._canvasElem.updateTarget( this._target );
-    
+
     // Restart the raytracer
     this._raytracer.destroy( );
     if ( this._config.isRunning ) {
@@ -198,6 +207,7 @@ class Global {
     this._raytracer.storeMesh( id, mesh );
   }
 
+  // Stores a texture in the WASM module
   public storeTexture( id : number, texture : Texture ): void {
     this._textures.set( id, texture );
     this._raytracer.storeTexture( id, texture );
@@ -208,8 +218,14 @@ class Global {
     return this._onRenderDone.observable;
   }
 
-  public onBvhDone( ): Observable< number | undefined > {
+  // Produces a tuple with build time and node count
+  public onBvhDone( ): Observable< [number, number] | undefined > {
     return this._onBvhDone.observable;
+  }
+
+  // Produces the number of BVH hits whenever a frame is done rendering
+  public onBvhHits( ): Observable< number > {
+    return this._onBvhHits.observable;
   }
 
   // Gets notified when the camera updates
@@ -224,10 +240,11 @@ class Global {
     this._cameraController.set( this._cameraController.get( ) );
   }
 
+  // If the BVH is enabled, it is rebuilt
   private _rebuildBvh( ): void {
-    if ( this._config.hasBvh ) {
-      this._raytracer.rebuildBVH( 16 ).then( res => {
-        this._onBvhDone.next( res );
+    if ( this._config.bvhState != 0 ) {
+      this._raytracer.rebuildBVH( 32, this._config.bvhState == 2 ).then( ( [time, numNodes] ) => {
+        this._onBvhDone.next( [time, numNodes] );
       } );
     }
   }
@@ -274,7 +291,7 @@ class Global {
   private _onResize( ) {
     const canvas  = this._canvas;
     canvas.height = document.body.clientHeight;
-    canvas.width  = document.body.clientWidth - 250 / (3 / 4);
+    canvas.width  = document.body.clientWidth - 2 * ( 250 / (3 / 4) );
     this._canvasElem.reclamp( );
   }
 
@@ -282,7 +299,9 @@ class Global {
   // Upon completion a UInt8 RGBA pixel buffer is provided to the promise.
   private _render( ): Promise< void > {
     let startTime = Date.now( );
-    return this._raytracer.render( ).then( res => {
+    return this._raytracer.render( ).then( ( [ numHits, res ] ) => {
+      this._onBvhHits.next( numHits );
+
       this._target.update( res );
       let currTime = Date.now( );
       this._fpsTracker.add( currTime, currTime - startTime );
@@ -300,13 +319,18 @@ class Global {
 function sceneCamera( sceneId : number ): Camera {
   if ( sceneId === 0 ) { // cubes and spheres
     return new Camera( new Vec3( -3.7, 3.5, -0.35 ), 0.47, 0.54 );
-  } else if ( sceneId === 1 || sceneId === 2 || sceneId === 3 ) { // clouds
+  } else if ( sceneId === 1 || sceneId == 2 ) { // bunnies
+    return new Camera( new Vec3( -0.9, 5.4, 0.4 ), 0.58, 0.0 );
+  } else if ( sceneId === 3 || sceneId === 4 || sceneId === 5 ) { // clouds
     return new Camera( new Vec3( 0.0, 4.8, 2.6 ), 0.97, 0.0 );
+  } else if ( sceneId === 6 ) { // marching
+    return new Camera( new Vec3( 2.08, 1.29, 8.21 ), 0.39, -0.90 );
   } else {
     throw new Error( 'No Scene' );
   }
 }
 
+// Generates triangles in the box [-3,3]^3 around the origin
 function triangleCloud( n : number ): Triangles {
   let vertices = new Float32Array( 9 * n );
 
@@ -325,7 +349,7 @@ function triangleCloud( n : number ): Triangles {
     vertices[ i * 9 + 7 ] = centerY + Math.random( ) * 0.5;
     vertices[ i * 9 + 8 ] = centerZ + Math.random( ) * 0.5;
   }
-  return new Triangles( vertices, vertices /* normals aren't used anyway */ );
+  return new Triangles( vertices );
 }
 
 document.addEventListener( 'DOMContentLoaded', ev => {
@@ -337,35 +361,57 @@ document.addEventListener( 'DOMContentLoaded', ev => {
     .then( compiledMod => {
       const env = new Global( canvas, compiledMod );
 
-      let settingsPanel = document.getElementById( 'sidepanel' );
-      const app = Elm.SidePanel.init( { node: settingsPanel } );
-      app.ports.updateRenderType.subscribe( t => env.setRenderType( t ) );
-      app.ports.updateReflectionDepth.subscribe( d => env.setReflectionDepth( d ) );
-      app.ports.updateRunning.subscribe( r => env.updateRunning( r ) );
-      app.ports.updateMulticore.subscribe( r => env.updateMulticore( r ) );
-      app.ports.updateScene.subscribe( sid => env.updateScene( sid ) );
-      app.ports.updateViewport.subscribe( vp => env.updateViewport( vp[ 0 ], vp[ 1 ] ) );
-      app.ports.updateHasBVH.subscribe( b => env.enableBvh( b ) );
+      const scenePanel = document.getElementById( 'scenepanel' );
+      const appScenes = ElmScene.PanelScenes.init( { node: scenePanel } );
+      appScenes.ports.updateScene.subscribe( sid => env.updateScene( sid ) );
 
-      env.onRenderDone( ).subscribe( res => app.ports.updatePerformance.send( res ) );
-      // env.onCameraUpdate( ).subscribe( c =>
-      //   app.ports.updateCamera.send( { x: c.location.x, y: c.location.y, z: c.location.z, rotX: c.rotX, rotY: c.rotY } )
-      // );
+      let settingsPanel = document.getElementById( 'settingspanel' );
+      const appSettings = ElmSettings.PanelSettings.init( { node: settingsPanel } );
+      appSettings.ports.updateRenderType.subscribe( t => env.setRenderType( t ) );
+      appSettings.ports.updateReflectionDepth.subscribe( d => env.setReflectionDepth( d ) );
+      appSettings.ports.updateRunning.subscribe( r => env.updateRunning( r ) );
+      appSettings.ports.updateMulticore.subscribe( r => env.updateMulticore( r ) );
+      appSettings.ports.updateViewport.subscribe( vp => env.updateViewport( vp[ 0 ], vp[ 1 ] ) );
+      appSettings.ports.updateBVHState.subscribe( b => env.setBvhState( b ) );
+
+      env.onRenderDone( ).subscribe( res => appSettings.ports.updatePerformance.send( res ) );
       env.triggerCameraUpdate( );
-      
+
       env.onBvhDone( ).subscribe( r => {
         console.log( 'BVH Done!', r );
         if ( typeof r !== 'undefined' ) {
-          app.ports.updateBVHTime.send( r );
+          let [buildTime, nodeCount] = r;
+          console.log( nodeCount );
+          appSettings.ports.updateBVHTime.send( buildTime );
+          appSettings.ports.updateBVHCount.send( nodeCount );
         }
       } );
+      env.onBvhHits( ).subscribe( numHits => {
+        appSettings.ports.updateBVHHits.send( numHits );
+      } );
 
-      env.enableBvh( true );
+      env.setBvhState( 1 ); // 2-way BVH
 
-      /*fetch( 'torus.obj' ).then( f => f.text( ) ).then( s => {
+      fetch( 'bunny.obj' ).then( f => f.text( ) ).then( s => {
         let triangles = parseObj( s );
-        env.storeMesh( MeshId.MESH_TORUS, triangles );
-      } );*/
+        let numVertices = triangles.vertices.length / 3;
+        for ( let i = 0; i < numVertices; i++ ) {
+          triangles.vertices[ i * 3 + 0 ] *= 8;
+          triangles.vertices[ i * 3 + 1 ] *= 8;
+          triangles.vertices[ i * 3 + 2 ] *= -8;
+        }
+        env.storeMesh( MeshId.BUNNY_LOW, triangles );
+      } );
+      fetch( 'bunny2.obj' ).then( f => f.text( ) ).then( s => {
+        let triangles = parseObj( s );
+        let numVertices = triangles.vertices.length / 3;
+        for ( let i = 0; i < numVertices; i++ ) {
+          triangles.vertices[ i * 3 + 0 ] *= 8;
+          triangles.vertices[ i * 3 + 1 ] *= 8;
+          triangles.vertices[ i * 3 + 2 ] *= -8;
+        }
+        env.storeMesh( MeshId.BUNNY_HIGH, triangles );
+      } );
 
       env.storeMesh( MeshId.CLOUD_100,  triangleCloud( 100 ) );
       env.storeMesh( MeshId.CLOUD_10K,  triangleCloud( 10000 ) );

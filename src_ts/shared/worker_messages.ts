@@ -53,7 +53,8 @@ export interface MsgC2WStoreTexture extends Msg {
 
 export interface MsgC2WRebuildBVH extends Msg {
   type    : 'rebuild_bvh',
-  numBins : number
+  numBins : number,
+  isBVH4  : boolean
 }
 
 export interface MsgC2WDisableBVH extends Msg {
@@ -72,9 +73,22 @@ export interface MsgW2CInitDone extends Msg {
 }
 
 export interface MsgW2CComputeDone extends Msg {
-  type : 'compute_done'
+  type       : 'compute_done',
+  numBVHHits : number
 }
 
 export interface MsgW2CBvhDone extends Msg {
   type : 'bvh_done'
+}
+
+export interface MsgW2CTextureDone extends Msg {
+  type: 'texture_done'
+}
+
+export interface MsgW2CMeshDone extends Msg {
+  type: 'mesh_done'
+}
+
+export interface MsgW2CUpdateSceneDone extends Msg {
+  type: 'update_scene_done'
 }

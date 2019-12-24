@@ -3,7 +3,8 @@ import { Camera }       from '@s/graphics/camera';
 import { Vec2 }         from '@s/math/vec2';
 import { Triangles }    from '@s/graphics/triangles';
 import { Msg, MsgC2WInit, MsgC2WUpdateCamera, MsgC2WUpdateParams
-       , MsgC2WUpdateScene, MsgC2WCompute, MsgC2WStoreMesh, MsgC2WStoreTexture, MsgC2WRebuildBVH, MsgC2WDisableBVH } from '@s/worker_messages';
+       , MsgC2WUpdateScene, MsgC2WCompute, MsgC2WStoreMesh, MsgC2WStoreTexture, MsgC2WRebuildBVH, MsgC2WDisableBVH
+       , MsgW2CComputeDone } from '@s/worker_messages';
 import { Raytracer }           from './index';
 import { shuffle, divideOver } from '../util';
 import { Texture }             from '@s/graphics/texture';
@@ -65,8 +66,8 @@ export class MulticoreRaytracer implements Raytracer {
     this._camera           = camera;
     this._hasUpdatedCamera = false;
 
-    let buffer    = new SharedArrayBuffer( width * height * 4 );
-    this._buffer8 = new Uint8Array( buffer );
+    let buffer       = new SharedArrayBuffer( width * height * 4 );
+    this._buffer8    = new Uint8Array( buffer );
 
 
     let onInit = new EmptyPromise< void >( );
@@ -95,7 +96,7 @@ export class MulticoreRaytracer implements Raytracer {
   }
 
   // See `Raytracer#render()`
-  public render( ): Promise< Uint8Array > {
+  public render( ): Promise< [ number, Uint8Array ] > {
     return this._queue.add( ( ) => {
       if ( this._hasUpdatedCamera ) {
         let cameraMsg : MsgC2WUpdateCamera = { type: 'update_camera', camera: this._camera };
@@ -106,20 +107,33 @@ export class MulticoreRaytracer implements Raytracer {
       let computeMsg : MsgC2WCompute = { type: 'compute' };
       this._workers.send( computeMsg );
 
-      return Promise.all( this._workers.awaitAll( 'compute_done' ) )
-        .then( ( ) => this._buffer8 );
+      return Promise.all< MsgW2CComputeDone | undefined >( this._workers.awaitAll( 'compute_done' ) )
+        .then( ps => {
+          let numHits = 0;
+          for ( let p of ps ) {
+            if ( p ) {
+              numHits += p.numBVHHits;
+            }
+          }
+
+          return [ numHits, this._buffer8 ];
+        } );
     } );
   }
 
   // See `Raytracer#updateScene()`
   public updateScene( sceneId : number ): void {
     let msg: MsgC2WUpdateScene = { type: 'update_scene', sceneId };
-    this._workers.send( msg );
+    this._queue.add( ( ) => {
+      this._workers.send( msg );
+      return Promise.all( this._workers.awaitAll( 'update_scene_done' ) );
+    } );
   }
 
   // See `Raytracer#destroy()`
   public destroy( ): void {
     this._workers.destroy( );
+    console.log( 'DONE DESTROY', this._queue.numPending( ) );
   }
 
   // See `Raytracer#updateParams()`
@@ -159,21 +173,28 @@ export class MulticoreRaytracer implements Raytracer {
   }
 
   // See `Raytracer#rebuildBVH()`
-  public rebuildBVH( numBins : number ): Promise< number > {
+  public rebuildBVH( numBins : number, isBVH4 : boolean ): Promise< [ number, number ] > {
     let duration = Number.MAX_SAFE_INTEGER;
+    let numNodes = 0;
+
     this._queue.add( ( ) => {
       let startTime = Date.now( );
-      let msg : MsgC2WRebuildBVH = { type: 'rebuild_bvh', numBins };
+      let msg : MsgC2WRebuildBVH = { type: 'rebuild_bvh', numBins, isBVH4 };
       this._workers.send1( msg );
-      return this._workers.await1( 'bvh_done' ).then( ( ) => {
+      return this._workers.await1( 'bvh_done' ).then( m => {
         duration = Date.now( ) - startTime;
+        if ( m ) {
+          numNodes = ( <any> m ).numNodes;
+        } else {
+          numNodes = 0;
+        }
       } );
     } );
     return this._queue.add( ( ) => {
-      let msg : MsgC2WRebuildBVH = { type: 'rebuild_bvh', numBins };
+      let msg : MsgC2WRebuildBVH = { type: 'rebuild_bvh', numBins, isBVH4 };
       this._workers.send( msg );
       return Promise.all( this._workers.awaitAll( 'bvh_done' ) )
-        .then( ( ) => duration );
+        .then( ( ) => [ duration, numNodes ] );
     } );
   }
 
@@ -206,6 +227,10 @@ class JobQueue {
     }
   }
 
+  public numPending( ): number {
+    return this._queue.length;
+  }
+
   private _next( ): void {
     if ( this._queue.length > 0 ) {
       let job = < ( ) => Promise< void > > this._queue.shift( );
@@ -228,9 +253,12 @@ class WorkerDesc {
 
 class MsgController {
   private readonly _workers : WorkerDesc[];
+  private          _isDestroyed : boolean;
 
   public constructor( workers : Worker[] ) {
-    this._workers = new Array( workers.length );
+    this._workers     = new Array( workers.length );
+    this._isDestroyed = false;
+
     for ( let i = 0; i < workers.length; i++ ) {
       this._workers[ i ] = new WorkerDesc( workers[ i ] );
       this._workers[ i ].worker.addEventListener( 'message', ev => {
@@ -247,44 +275,61 @@ class MsgController {
   }
 
   public send( msg : Msg ) {
-    for ( let i = 0; i < this._workers.length; i++ ) {
-      this._workers[ i ].worker.postMessage( msg );
+    if ( !this._isDestroyed ) {
+      for ( let i = 0; i < this._workers.length; i++ ) {
+        this._workers[ i ].worker.postMessage( msg );
+      }
     }
   }
 
   public send1( msg : Msg ) {
-    this._workers[ 0 ].worker.postMessage( msg );
+    if ( !this._isDestroyed ) {
+      this._workers[ 0 ].worker.postMessage( msg );
+    }
   }
 
   public awaitAll< TMsg >( msgType : string ): Promise<TMsg|undefined>[] {
-    let out: Promise< TMsg >[] = [];
-    for ( let i = 0; i < this._workers.length; i++ ) {
-      let w = this._workers[ i ];
+    if ( this._isDestroyed ) {
+      let out : Promise< TMsg | undefined >[] = new Array( this._workers.length );
+      for ( let i = 0; i < this._workers.length; i++ ) {
+        out.push( Promise.resolve( undefined ) );
+      }
+      return out;
+    } else {
+      let out: Promise< TMsg >[] = [];
+      for ( let i = 0; i < this._workers.length; i++ ) {
+        let w = this._workers[ i ];
+        let newPromise = new EmptyPromise< TMsg >( );
+        if ( w.queue.has( msgType ) ) {
+          let q = <[EmptyPromise<any>]> w.queue.get( msgType );
+          q.push( newPromise );
+        } else {
+          w.queue.set( msgType, [ newPromise ] )
+        }
+        out.push( newPromise.promise );
+      }
+      return out;
+    }
+  }
+
+  public await1< TMsg >( msgType : string ): Promise<TMsg|undefined> {
+    if ( this._isDestroyed ) {
+      return Promise.resolve( undefined );
+    } else {
       let newPromise = new EmptyPromise< TMsg >( );
+      let w = this._workers[ 0 ];
       if ( w.queue.has( msgType ) ) {
         let q = <[EmptyPromise<any>]> w.queue.get( msgType );
         q.push( newPromise );
       } else {
         w.queue.set( msgType, [ newPromise ] )
       }
-      out.push( newPromise.promise );
+      return newPromise.promise;
     }
-    return out;
-  }
-
-  public await1< TMsg >( msgType : string ): Promise<TMsg|undefined> {
-    let newPromise = new EmptyPromise< TMsg >( );
-    let w = this._workers[ 0 ];
-    if ( w.queue.has( msgType ) ) {
-      let q = <[EmptyPromise<any>]> w.queue.get( msgType );
-      q.push( newPromise );
-    } else {
-      w.queue.set( msgType, [ newPromise ] )
-    }
-    return newPromise.promise;
   }
 
   public destroy( ): void {
+    this._isDestroyed = true;
     for ( let i = 0; i < this._workers.length; i++ ) {
       this._workers[ i ].worker.terminate( );
     }
@@ -296,12 +341,4 @@ class MsgController {
       }
     }
   }
-}
-
-function anyP< T >( vs : Promise< T >[] ): Promise< T > {
-  return new Promise( ( fResolve, fReject ) => {
-    for ( let v of vs ) {
-      v.then( v => fResolve( v ) )
-    }
-  } );
 }
