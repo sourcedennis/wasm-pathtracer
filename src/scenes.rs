@@ -1,11 +1,10 @@
 // External imports
 use std::collections::HashMap;
-use std::f32::consts::PI;
 use std::rc::Rc;
 // Local imports
-use crate::graphics::{ Color3, Material, Scene, MarchScene, Texture };
+use crate::graphics::{ Color3, Material, Scene, MarchScene };
 use crate::graphics::lights::Light;
-use crate::graphics::primitives::{ AARect, Plane, Sphere, Triangle, Square, Torus };
+use crate::graphics::primitives::{ AARect, Plane, Sphere };
 use crate::graphics::ray::{ Tracable, Marchable };
 use crate::graphics::Mesh;
 use crate::math::Vec3;

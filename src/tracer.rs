@@ -1,6 +1,6 @@
 use crate::data::cap_stack::Stack;
 use crate::graphics::{Color3, PointMaterial, Scene};
-use crate::graphics::ray::{Ray, Tracable};
+use crate::graphics::ray::{Ray};
 use crate::math::Vec3;
 use crate::math;
 use std::f32::INFINITY;

@@ -11,7 +11,3 @@ pub use sphere::Sphere;
 pub use square::Square;
 pub use torus::Torus;
 pub use triangle::Triangle;
-
-use crate::math::{Vec3};
-use crate::graphics::ray::{Ray, Tracable, Bounded, Hit};
-use crate::graphics::{Material, AABB};
