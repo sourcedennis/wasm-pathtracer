@@ -1,5 +1,7 @@
 use crate::graphics::ray::{Ray};
 use crate::math::Vec3;
+use std::f32::INFINITY;
+use packed_simd::*;
 
 /// An Axis-Aligned bounding box
 /// Fast intersection with their distance is available
@@ -11,6 +13,16 @@ pub struct AABB {
   pub x_max : f32,
   pub y_max : f32,
   pub z_max : f32
+}
+
+#[derive(Copy,Clone,Debug)]
+pub struct AABBx4 {
+  pub x_min : f32x4,
+  pub y_min : f32x4,
+  pub z_min : f32x4,
+  pub x_max : f32x4,
+  pub y_max : f32x4,
+  pub z_max : f32x4
 }
 
 impl AABB {
@@ -151,5 +163,79 @@ impl AABB {
     } else { // Box behind camera
       None
     }
+  }
+}
+
+impl AABBx4 {
+  pub fn empty( ) -> AABBx4 {
+    AABBx4::new( AABB::EMPTY, AABB::EMPTY, AABB::EMPTY, AABB::EMPTY )
+  }
+
+  pub fn extract( &self, i : usize ) -> AABB {
+    AABB::new1( self.x_min.extract( i ), self.y_min.extract( i ), self.z_min.extract( i )
+              , self.x_max.extract( i ), self.y_max.extract( i ), self.z_max.extract( i )
+              )
+  }
+
+  pub fn extract_hull( &self, n : usize ) -> AABB {
+    // assert( n > 0 )
+    let mut hull = self.extract( 0 );
+    for i in 1..n {
+      hull = hull.join( &self.extract( i ) );
+    }
+    hull
+  }
+
+  pub fn new( a : AABB, b : AABB, c : AABB, d : AABB ) -> AABBx4 {
+    let x_min = f32x4::new( a.x_min, b.x_min, c.x_min, d.x_min );
+    let y_min = f32x4::new( a.y_min, b.y_min, c.y_min, d.y_min );
+    let z_min = f32x4::new( a.z_min, b.z_min, c.z_min, d.z_min );
+    let x_max = f32x4::new( a.x_max, b.x_max, c.x_max, d.x_max );
+    let y_max = f32x4::new( a.y_max, b.y_max, c.y_max, d.y_max );
+    let z_max = f32x4::new( a.z_max, b.z_max, c.z_max, d.z_max );
+
+    AABBx4 { x_min, y_min, z_min, x_max, y_max, z_max }
+  }
+
+  pub fn hit( &self, ray : &Ray ) -> f32x4 {
+    let mut z_x4 = f32x4::splat( 0.0 );
+    let mut ninf_x4 = f32x4::splat( -INFINITY );
+
+    let invdx = 1.0 / ray.dir.x;
+    let invdy = 1.0 / ray.dir.y;
+    let invdz = 1.0 / ray.dir.z;
+
+    // "Clip" the line within the box, along each axis
+    let tx1 = ( self.x_min - ray.origin.x ) * invdx;
+    let tx2 = ( self.x_max - ray.origin.x ) * invdx;
+    let ty1 = ( self.y_min - ray.origin.y ) * invdy;
+    let ty2 = ( self.y_max - ray.origin.y ) * invdy;
+    let tz1 = ( self.z_min - ray.origin.z ) * invdz;
+    let tz2 = ( self.z_max - ray.origin.z ) * invdz;
+
+    let txmin = tx1.min(tx2);
+    let tymin = ty1.min(ty2);
+    let tzmin = tz1.min(tz2);
+    let txmax = tx1.max(tx2);
+    let tymax = ty1.max(ty2);
+    let tzmax = tz1.max(tz2);
+
+    let tmin = txmin.max(tymin).max(tzmin);
+    let tmax = txmax.min(tymax).min(tzmax);
+
+    let no_intersect = tmin.gt( tmax );
+    let outside = tmin.ge( z_x4 );
+    let inside = tmax.ge( z_x4 );
+
+    no_intersect.select(
+      ninf_x4,
+      outside.select(
+        tmin,
+        inside.select(
+          z_x4,
+          ninf_x4
+        )
+      )
+    )
   }
 }

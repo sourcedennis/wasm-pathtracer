@@ -19,7 +19,7 @@ pub use scene::{Scene, LightHit};
 pub use march_scene::{MarchScene};
 pub use mesh::{Mesh};
 pub use texture::{Texture};
-pub use aabb::AABB;
+pub use aabb::{AABB, AABBx4};
 pub use bvh::{BVHNode};
 pub use bvh4::{BVHNode4};
 

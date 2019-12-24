@@ -278,19 +278,7 @@ fn traverse_bvh4_guarded< 'a >(
     , node_i  : usize
     , max_dis : f32 ) -> (usize, Option< (f32, &'a Rc< dyn Tracable >) >) {
 
-  let node   = &bvh[ node_i ];
-  let bounds = &node.bounds;
-
-  if let Some( h ) = bounds.hit( ray ) {
-    if h < max_dis {
-      let (t2, res) = traverse_bvh4( ray, num_inf, bvh, shapes, node_i, max_dis );
-      (t2 + 1, res)
-    } else {
-      (1, None)
-    }
-  } else {
-    (1, None)
-  }
+  traverse_bvh4( ray, num_inf, bvh, shapes, node_i, max_dis )
 }
 
 // Assume the bounding box of `node_i` *does* intersect
@@ -315,11 +303,15 @@ fn traverse_bvh4< 'a >(
     let num_children  = bvh[ node_i ].num_children( );
     let left_i        = bvh[ node_i ].left_first as usize;
 
+
+    // ( num_traversed, res )
+    let hits = bvh[ node_i ].bounds.hit( ray );
+    
     let mut children = [ (0, INFINITY), (0, INFINITY), (0, INFINITY), (0, INFINITY) ];
 
     for i in 0..num_children {
       let id = left_i + i;
-      children[ i ] = ( id, aabb_distance_inf( ray, &bvh[ id ].bounds ) );
+      children[ i ] = ( id, hits.extract( i ) );
     }
 
     sort_small( &mut children, num_children );
@@ -388,13 +380,13 @@ fn sort_small( a : &mut [(usize, f32)], n : usize ) {
   }
 }
 
-fn aabb_distance_inf( ray : &Ray, aabb : &AABB ) -> f32 {
-  if let Some( h ) = aabb.hit( ray ) {
-    h
-  } else {
-    -INFINITY
-  }
-}
+// fn aabb_distance_inf( ray : &Ray, aabb : &AABB ) -> f32 {
+//   if let Some( h ) = aabb.hit( ray ) {
+//     h
+//   } else {
+//     -INFINITY
+//   }
+// }
 
 fn aabb_distance( ray : &Ray, aabb : &AABB, max_dis : f32 ) -> Option< f32 > {
   if let Some( h ) = aabb.hit( ray ) {

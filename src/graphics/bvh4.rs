@@ -1,30 +1,33 @@
 use crate::graphics::bvh::BVHNode;
-use crate::graphics::AABB;
+use crate::graphics::{AABB, AABBx4};
 use crate::graphics::ray::Tracable;
 use std::f32::INFINITY;
 use std::rc::Rc;
+use packed_simd::*;
 
 #[derive(Copy,Clone,Debug)]
-#[repr(align(32))]
+// #[repr(align(32))]
 pub struct BVHNode4 {
-  pub bounds         : AABB,
+  // The bounds of the children
+  pub bounds         : AABBx4,
   pub left_first     : u32,
-  pub count_children : u32
+  pub count_children : u32,
+  pub _is_leaf       : bool
 }
 
 impl BVHNode4 {
-  pub fn leaf( bounds : AABB, offset : u32, count : u32 ) -> BVHNode4 {
-    BVHNode4 { bounds, left_first: offset, count_children: count | 0x80000000 }
+  pub fn leaf( offset : u32, count : u32 ) -> BVHNode4 {
+    BVHNode4 { bounds: AABBx4::empty( ), left_first: offset, count_children: count, _is_leaf: true }
   }
 
-  pub fn node( bounds : AABB, first : u32, num_children : u32 ) -> BVHNode4 {
-    BVHNode4 { bounds, left_first: first, count_children: num_children }
+  pub fn node( child_bounds : AABBx4, first : u32, num_children : u32 ) -> BVHNode4 {
+    BVHNode4 { bounds: child_bounds, left_first: first, count_children: num_children, _is_leaf: false }
   }
 
   pub fn collapse( bvh2 : &Vec< BVHNode > ) -> Vec< BVHNode4 > {
     let mut memo : Vec< Option< Vec< f32 > > > = vec![ None; bvh2.len( ) ];
     let min_cost = r_cost( &mut memo, bvh2, 0, 4 );
-    let BVH_PLACEHOLDER = BVHNode4::leaf( AABB::EMPTY, 0, 0 );
+    let BVH_PLACEHOLDER = BVHNode4::leaf( 0, 0 );
   
     let pre_cost = current_cost( bvh2, 0 );
     //println!( "Cost: {} / {}", c, current_cost( bvh, 0 ) );
@@ -38,16 +41,19 @@ impl BVHNode4 {
         dst.push( BVH_PLACEHOLDER );
       }
       let res2 = collapse_with( &mut dst, bvh2, &mut memo, 0, 4 );
-      let mut bounds = res2[ 0 ].bounds;
-      for i in 1..res2.len( ) {
-        bounds = bounds.join( &res2[ i ].bounds );
+      
+      let mut bounds_box = [ AABB::EMPTY, AABB::EMPTY, AABB::EMPTY, AABB::EMPTY ];
+      for i in 0..res.len( ) {
+        bounds_box[ i ] = res[ i ].0;
       }
-      dst[ 0 ] = BVHNode4::node( bounds, 1, res2.len( ) as u32 );
+      let simd_bounds = AABBx4::new( bounds_box[ 0 ], bounds_box[ 1 ], bounds_box[ 2 ], bounds_box[ 3 ] );
+
+      dst[ 0 ] = BVHNode4::node( simd_bounds, 1, res2.len( ) as u32 );
       for i in 0..res2.len( ) {
-        dst[ i + 1 ] = res2[ i ];
+        dst[ i + 1 ] = res2[ i ].1;
       }
     } else {
-      dst[ 0 ] = res[ 0 ];
+      dst[ 0 ] = res[ 0 ].1;
     }
     //let found_cost = current_cost( bvh2, dst );
   
@@ -61,7 +67,7 @@ impl BVHNode4 {
   }
 
   pub fn num_shapes( &self ) -> usize {
-    ( self.count_children & 0x7FFFFFFF ) as usize
+    self.count_children as usize
   }
 
   pub fn node_count( bvh : &Vec< BVHNode4 > ) -> usize {
@@ -97,7 +103,7 @@ impl BVHNode4 {
   }
 
   pub fn is_leaf( &self ) -> bool {
-    self.count_children & 0x80000000 != 0
+    self._is_leaf
   }
 
   pub fn verify( shapes : &[Rc< dyn Tracable >], num_infinite : usize, bvh : &Vec< BVHNode4 > ) -> bool {
@@ -105,14 +111,14 @@ impl BVHNode4 {
   }
 }
 
-fn collapse_with( dst : &mut Vec< BVHNode4 >, bvh : &Vec< BVHNode >, memo : &Vec< Option< Vec< f32 > > >, node_i : usize, cutsize : usize ) -> Vec< BVHNode4 > {
+fn collapse_with( dst : &mut Vec< BVHNode4 >, bvh : &Vec< BVHNode >, memo : &Vec< Option< Vec< f32 > > >, node_i : usize, cutsize : usize ) -> Vec< (AABB, BVHNode4) > {
   let T_COST = 1; // Cost to perform an AABB intersection
   let MAX_CHILDS = 4;
-  let BVH_PLACEHOLDER = BVHNode4::leaf( AABB::EMPTY, 0, 0 );
+  let BVH_PLACEHOLDER = BVHNode4::leaf( 0, 0 );
   
   if bvh[ node_i ].is_leaf( ) { // leaf
     // A leaf still has an AABB
-    vec![ BVHNode4::leaf( bvh[ node_i ].bounds, bvh[ node_i ].left_first, bvh[ node_i ].count ) ]
+    vec![ ( bvh[ node_i ].bounds, BVHNode4::leaf( bvh[ node_i ].left_first, bvh[ node_i ].count ) ) ]
   } else {
     let node_left_i  = bvh[ node_i ].left_first as usize;
     let node_right_i = ( node_left_i + 1 ) as usize;
@@ -142,19 +148,29 @@ fn collapse_with( dst : &mut Vec< BVHNode4 >, bvh : &Vec< BVHNode >, memo : &Vec
       let rcs = collapse_with( dst, bvh, memo, node_right_i, 4 - i_min );
 
       let mut index2 = index;
-      let mut bounds = lcs[ 0 ].bounds;
+      let mut bounds = lcs[ 0 ].0;
+      let mut bounds_box = [ AABB::EMPTY, AABB::EMPTY, AABB::EMPTY, AABB::EMPTY ];
+      let mut j = 0;
       for e in lcs {
-        dst[ index2 ] = e;
+        dst[ index2 ] = e.1;
         index2 += 1;
-        bounds = bounds.join( &e.bounds );
+        bounds = bounds.join( &e.0 );
+
+        bounds_box[ j ] = e.0;
+        j += 1;
       }
       for e in rcs {
-        dst[ index2 ] = e;
+        dst[ index2 ] = e.1;
         index2 += 1;
-        bounds = bounds.join( &e.bounds );
+        bounds = bounds.join( &e.0 );
+
+        bounds_box[ j ] = e.0;
+        j += 1;
       }
 
-      vec![ BVHNode4::node( bounds, index as u32, num_children as u32 ) ]
+      let simd_bounds = AABBx4::new( bounds_box[ 0 ], bounds_box[ 1 ], bounds_box[ 2 ], bounds_box[ 3 ] );
+
+      vec![ ( bounds, BVHNode4::node( simd_bounds, index as u32, num_children as u32 ) ) ]
     } else { // Discard the node
       let mut i_min = 1;
       let mut i_min_val = node_flat_cost( memo, bvh, node_left_i, 1 ) + node_flat_cost( memo, bvh, node_right_i, t - 1 );
@@ -264,7 +280,9 @@ fn current_cost( bvh : &Vec< BVHNode >, node_i : usize ) -> f32 {
 }
 
 fn verify_bvh( shapes : &[Rc< dyn Tracable >], num_infinite : usize, bvh : &Vec< BVHNode4 > ) -> bool {
-  let a = verify_bvh_bounds( shapes, num_infinite, bvh, 0 ).is_some( );
+  let mut self_bounds = bvh[ 0 ].bounds.extract_hull( bvh[ 0 ].num_children( ) );
+
+  let a = verify_bvh_bounds( shapes, num_infinite, bvh, self_bounds, 0 ).is_some( );
   let mut contained = vec![false; shapes.len()-num_infinite];
   verify_bvh_contains( &mut contained, bvh, 0 );
 
@@ -289,9 +307,8 @@ fn verify_bvh_contains( contained : &mut [bool], bvh : &Vec< BVHNode4 >, i : usi
   }
 }
 
-fn verify_bvh_bounds( shapes : &[Rc< dyn Tracable >], num_infinite : usize, bvh : &Vec< BVHNode4 >, i : usize ) -> Option< AABB > {
+fn verify_bvh_bounds( shapes : &[Rc< dyn Tracable >], num_infinite : usize, bvh : &Vec< BVHNode4 >, bounds : AABB, i : usize ) -> Option< AABB > {
   let n = &bvh[ i ];
-  let bounds = &n.bounds;
 
   if !n.is_leaf( ) {
     let left_index = n.left_first as usize;
@@ -300,16 +317,16 @@ fn verify_bvh_bounds( shapes : &[Rc< dyn Tracable >], num_infinite : usize, bvh 
       return None;
     }
 
-    let mut bounds =
-      if let Some( b ) = verify_bvh_bounds( shapes, num_infinite, bvh, left_index ) {
+    let mut new_bounds =
+      if let Some( b ) = verify_bvh_bounds( shapes, num_infinite, bvh, n.bounds.extract( 0 ), left_index ) {
         b
       } else {
         return None;
       };
 
     for i in 1..n.num_children( ) {
-      if let Some( b ) = verify_bvh_bounds( shapes, num_infinite, bvh, left_index + i ) {
-        bounds = bounds.join( &b );
+      if let Some( b ) = verify_bvh_bounds( shapes, num_infinite, bvh, n.bounds.extract( i ), left_index + i ) {
+        new_bounds = new_bounds.join( &b );
       } else {
         return None;
       }
@@ -331,6 +348,6 @@ fn verify_bvh_bounds( shapes : &[Rc< dyn Tracable >], num_infinite : usize, bvh 
         return None;
       }
     }
-    Some( *bounds )
+    Some( bounds )
   }
 }
