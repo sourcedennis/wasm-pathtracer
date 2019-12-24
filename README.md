@@ -9,6 +9,8 @@ Bounding Volume Hierarchy construction and traversal is added. This includes 2-w
 
 For 4-way BVHs, SIMD is used. Sadly, WASM support for SIMD is limited, thus no performance increase can be observed in browsers yet. Instead, run `cargo run` to benchmark this in a native build. (Requires Rust Nightly, because SIMD is also experimental in Rust).
 
+Mainly, changes took place in `src/bvh.rs` (2-way BVH construction), `src/bvh4.rs` (4-way BVH construction), and `src/graphics/scene.rs` (BVH traversal).
+
 ## 1. Running
 Compiling the application yourself can be a bit troublesome, as compilers for *three* languages (TypeScript, Rust, Elm) need to be present.
 
