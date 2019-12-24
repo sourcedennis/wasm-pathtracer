@@ -2,18 +2,27 @@ use crate::graphics::ray::{Bounded, Marchable};
 use crate::graphics::{AABB, Color3};
 use crate::math::Vec3;
 
+// Operators for ray marching
+
+/// Union between two marchable shapes
+/// Its SDF is the closest of the two shapes.
 #[derive(Debug)]
 pub struct Union {
   a : Box< dyn Marchable >,
   b : Box< dyn Marchable >
 }
 
+/// Intersections between two marchable shapes
+/// Its SDF is the furthest of the two shapes.
 #[derive(Debug)]
 pub struct Intersection {
   a : Box< dyn Marchable >,
   b : Box< dyn Marchable >
 }
 
+/// Difference between two marchable shapes
+/// Its SDF is that which is closest to the first, but furthest from the
+///   second.
 #[derive(Debug)]
 pub struct Difference {
   a : Box< dyn Marchable >,
@@ -92,8 +101,6 @@ impl Bounded for Difference {
     }
   }
 
-  // Returns None if the primitive has no bounding-box, which happens when it is
-  // infinite. (Such as planes)
   fn aabb( &self ) -> Option< AABB > {
     self.a.aabb( )
   }

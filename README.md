@@ -1,8 +1,13 @@
 # Whitted-style Ray Tracing
 
-Live demo: [https://raytracer.space/1/](https://raytracer.space/1/) (Definitely runs in Google Chrome)
+Live demo: [https://raytracer.space/](https://raytracer.space/) (Definitely runs in Google Chrome on Win10)
 
 This is a realtime whitted-style raytracer written in Rust, intended to be compiled into WebAssembly (WASM). The included TypeScript Web App periodically invokes the WASM raytracer, and provides a GUI to interact with it.
+
+## 0. Changes
+Bounding Volume Hierarchy construction and traversal is added. This includes 2-way BVHs and 4-way BVHs.
+
+For 4-way BVHs, SIMD is used. Sadly, WASM support for SIMD is limited, thus no performance increase can be observed in browsers yet. Instead, run `cargo run` to benchmark this in a native build. (Requires Rust Nightly, because SIMD is also experimental in Rust).
 
 ## 1. Running
 Compiling the application yourself can be a bit troublesome, as compilers for *three* languages (TypeScript, Rust, Elm) need to be present.
@@ -30,6 +35,8 @@ npm install -g webpack webpack-cli
 The Rust compiler can be downloaded from:
 
 * [Rust](https://www.rust-lang.org/)
+
+The Nightly Rust build is required, as SIMD instructions are currently experimental. For this, run: `rustup default nightly`.
 
 ### Compiling
 Now all necessary system-wide tools should be available. Any other tools/libraries should be obtainable as part of the project's `npm` setup process. Inside the root of this project invoke:
@@ -60,9 +67,12 @@ The Rust sourcecode is located in the `src` directory. Some important files are 
 * `wasm_interface.rs` - All *public-interface* functions. All functions that are called by TypeScript are placed here.
 * `tracer.rs` - Contains code for tracing a single ray (recursively) into a scene
 * `scenes.rs` - The hardcoded scenes
+* `main.rs` - The entry-point when *not* compiling to WebAssembly (but to native). Used for debugging and benchmarking.
 * `graphics/`
-  * `scene.rs` - General scene description. Contains methods for tracing rays (and shadow rays) into the scene
+  * `scene.rs` - General scene description. Contains methods for tracing rays (and shadow rays) into the scene. Also contains code for traversing the BVH.
   * `material.rs` - The material class (reflection, diffuse, refraction; potentially with textures)
+  * `bvh.rs` - Constructs a 2-way BVH
+  * `bvh4.rs` - Collapses a 4-way BVH to a 2-way BVH
   * `primitives/` - Contains all implemented primitives (each implements `Tracable` from `graphics/ray.rs`)
 
 ### TypeScript Source
@@ -87,6 +97,8 @@ Some important files are described below.
 * [demofox.org - Raytracing](https://blog.demofox.org/2017/01/09/raytracing-reflection-refraction-fresnel-total-internal-reflection-and-beers-law/) - Explanation on refraction and Beer's law
 * [Torus ray intersection](http://cosinekitty.com/raytrace/chapter13_torus.html)
 * [My old raytracer](https://github.com/dennis-school/raytrace_city/) - This I wrote during my BSc ([RuG - Computer Graphics](http://www.cs.rug.nl/svcg/Teaching/ComputerGraphics)), from which I reused some primitive intersection code (some of which I probably took from the course slides or provided code templates).
+* "Shallow Bounding Volume Hierarchies for Fast SIMD Ray Tracing of Incoherent Rays" by H. Dammertz and J. Hanika and A. Keller - On 4-way BVH SIMD structures
+* "Adaptive Collapsing on Bounding Volume Hierarchies for Ray-Tracing" by A. Susano Pinto - On 2-way BVH collapsing
 
 ## 5. License
 The included [fonts](https://fonts.google.com/specimen/Open+Sans) (which I absolutely needed) were published under the [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0).

@@ -1,6 +1,8 @@
 import { Msg, MsgC2WInit, MsgC2WCompute, MsgC2WUpdateCamera, MsgC2WUpdateParams
        , MsgC2WUpdateScene, MsgW2CInitDone, MsgW2CComputeDone, MsgW2CBvhDone
-       , MsgC2WStoreMesh, MsgC2WStoreTexture, MsgC2WRebuildBVH
+       , MsgC2WStoreMesh, MsgC2WStoreTexture, MsgC2WRebuildBVH, MsgW2CTextureDone
+       , MsgW2CMeshDone,
+       MsgW2CUpdateSceneDone
        } from '@s/worker_messages';
 import { MsgHandler } from './msg_handler';
 
@@ -13,6 +15,9 @@ let height   : number;
 let buffer   : Uint8Array;
 let pixels   : any[];
 
+// The worker handles messages from the main thread
+// These typically pass information along to the WASM module
+//   and return a confirmation message.
 const handlers = new MsgHandler( );
 handlers.register( 'init',          handleInit );
 handlers.register( 'compute',       handleCompute );
@@ -28,6 +33,9 @@ onmessage = ev => {
   handlers.handle( ev.data );
 };
 
+// ## The message handlers ##
+
+// Initialises the worker state and WASM module
 function handleInit( msg : MsgC2WInit ): void {
   let mod = msg.mod;
 
@@ -69,6 +77,8 @@ function handleInit( msg : MsgC2WInit ): void {
   } );
 }
 
+// Performs the computation for a single render cycle
+// The results are stored in the shared buffer
 function handleCompute( msg : MsgC2WCompute ) {
   let numBVHHits = instance.exports.compute( );
   let resPtr = instance.exports.results( );
@@ -85,20 +95,25 @@ function handleCompute( msg : MsgC2WCompute ) {
   postMessage( <MsgW2CComputeDone> { type: 'compute_done', numBVHHits } );
 }
 
+// Updates some rendering parameters, which affect the next rendered pixels
 function handleUpdateParams( msg : MsgC2WUpdateParams ) {
   instance.exports.update_params( msg.renderType, msg.maxRayDepth );
 }
 
+// Updates the camera location
 function handleUpdateCamera( msg : MsgC2WUpdateCamera ) {
   const cam = msg.camera;
   instance.exports.update_camera( cam.location.x, cam.location.y, cam.location.z, cam.rotX, cam.rotY );
 }
 
+// Selects a new scene. `msg.sceneId` is a (magic) integer that is shared
+//   between the Elm front-end and WASM module for communication.
 function handleUpdateScene( msg : MsgC2WUpdateScene ) {
   instance.exports.update_scene( msg.sceneId );
-  postMessage( <Msg> { type: 'update_scene_done' } ); // TODO
+  postMessage( <MsgW2CUpdateSceneDone> { type: 'update_scene_done' } );
 }
 
+// Passes a mesh to the WASM client
 function handleStoreMesh( msg : MsgC2WStoreMesh ) {
   let exps = <any> instance.exports;
   let numVertices = msg.mesh.vertices.length / 3;
@@ -107,24 +122,27 @@ function handleStoreMesh( msg : MsgC2WStoreMesh ) {
   let dst = new Float32Array( exps.memory.buffer, ptrVertices, msg.mesh.vertices.length );
   dst.set( msg.mesh.vertices );
   exps.notify_mesh_loaded( msg.id );
-  postMessage( <Msg> { type: 'mesh_done' } ); // TODO
+  postMessage( <MsgW2CMeshDone> { type: 'mesh_done' } );
 }
 
+// Passes a texture to the WASM client
 function handleStoreTexture( msg : MsgC2WStoreTexture ) {
   let exps = <any> instance.exports;
   let ptrRgb = exps.allocate_texture( msg.id, msg.texture.width, msg.texture.height );
   let dst = new Uint8Array( exps.memory.buffer, ptrRgb, msg.texture.width * msg.texture.height * 3 );
   dst.set( msg.texture.data );
   exps.notify_texture_loaded( msg.id );
-  postMessage( <Msg> { type: 'texture_done' } ); // TODO
+  postMessage( <MsgW2CTextureDone> { type: 'texture_done' } );
 }
 
+// Requests to rebuild the BVH
 function handleRebuildBvh( msg : MsgC2WRebuildBVH ) {
   let exps = <any> instance.exports;
   let numNodes = exps.rebuild_bvh( msg.numBins, msg.isBVH4 ? 1 : 0 );
   postMessage( <MsgW2CBvhDone> { type: 'bvh_done', numNodes } );
 }
 
+// Requests to disable the BVH
 function handleDisableBvh( msg : MsgC2WRebuildBVH ) {
   let exps = <any> instance.exports;
   exps.disable_bvh( );

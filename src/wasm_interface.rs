@@ -1,4 +1,3 @@
-
 // External imports
 use wasm_bindgen::prelude::*;
 use std::collections::HashMap;
@@ -33,11 +32,15 @@ use crate::graphics::{Material};
 // General notes:
 // * Z points INTO the screen. -Z points to the eye
 
+/// The "render type". This is the "type" of visuals that are displayed on the
+/// screen.
 enum RenderType {
   RenderColor, RenderDepth, RenderBVH
 }
 
 impl RenderType {
+  /// Converts a "magic number" representing the type (obtained externally) into
+  /// the proper `RenderType` element.
   fn from( u : u32 ) -> RenderType {
     match u {
       0 => RenderType::RenderColor,
@@ -48,6 +51,8 @@ impl RenderType {
   }
 }
 
+/// A scene can be either a ray-traced or ray-marched scene.
+/// This enum distinguishes those.
 enum SceneEnum {
   Trace( Scene ),
   March( MarchScene )
@@ -77,7 +82,7 @@ struct Config {
   camera          : Camera,
 
   // ## Preallocation Stuff
-  //      (avoids dynamic allocation)
+  // (avoids dynamic allocation)
   mat_stack       : Stack< MatRefract >,
 }
 
@@ -283,7 +288,7 @@ pub fn allocate_mesh( id : u32, num_vertices : u32 ) {
   }
 }
 
-// Obtains a pointer to the mesh vertices
+/// Obtains a pointer to the mesh vertices
 #[wasm_bindgen]
 #[allow(dead_code)]
 pub fn mesh_vertices( id : u32 ) -> *mut Vec3 {
@@ -300,8 +305,8 @@ pub fn mesh_vertices( id : u32 ) -> *mut Vec3 {
   }
 }
 
-// Notifies the raytracer that all the mesh vertices are placed in WASM
-// memory. Returns `true` if a scene with the loaded mesh is currently rendering
+/// Notifies the raytracer that all the mesh vertices are placed in WASM
+/// memory. Returns `true` if a scene with the loaded mesh is currently rendering
 #[wasm_bindgen]
 #[allow(dead_code)]
 pub fn notify_mesh_loaded( id : u32 ) -> bool {
@@ -342,8 +347,8 @@ pub fn notify_mesh_loaded( id : u32 ) -> bool {
   }
 }
 
-// Allocates a texture identifier by the provided `id` with the provided size
-// Returns a pointer to the u8 RGB store location
+/// Allocates a texture identifier by the provided `id` with the provided size
+/// Returns a pointer to the u8 RGB store location
 #[wasm_bindgen]
 #[allow(dead_code)]
 pub fn allocate_texture( id : u32, width : u32, height : u32 ) -> *mut (u8,u8,u8) {
@@ -365,8 +370,8 @@ pub fn allocate_texture( id : u32, width : u32, height : u32 ) -> *mut (u8,u8,u8
   }
 }
 
-// Notifies the raytracer that the texture RGB data has been put into WASM's
-// memory. If the current scene is using that texture, the scene is updated
+/// Notifies the raytracer that the texture RGB data has been put into WASM's
+/// memory. If the current scene is using that texture, the scene is updated
 #[wasm_bindgen]
 #[allow(dead_code)]
 pub fn notify_texture_loaded( _id : u32 ) -> bool {
@@ -379,7 +384,7 @@ pub fn notify_texture_loaded( _id : u32 ) -> bool {
   }
 }
 
-// Rebuilds the BVH, and returns the number of nodes
+/// Rebuilds the BVH, and returns the number of nodes
 #[wasm_bindgen]
 #[allow(dead_code)]
 pub fn rebuild_bvh( num_bins : u32, is_bvh4 : u32 ) -> u32 {
@@ -388,7 +393,8 @@ pub fn rebuild_bvh( num_bins : u32, is_bvh4 : u32 ) -> u32 {
       match conf.scene {
         SceneEnum::Trace( ref mut s ) =>
           s.rebuild_bvh( num_bins as usize, is_bvh4 != 0 ),
-        SceneEnum::March( ref mut s ) => 0
+        // Marched scenes don't have a BVH (yet)
+        SceneEnum::March( ref mut _s ) => 0
       }
     } else {
       panic!( "init not called" )
@@ -396,6 +402,7 @@ pub fn rebuild_bvh( num_bins : u32, is_bvh4 : u32 ) -> u32 {
   }
 }
 
+/// Disables the BVH
 #[wasm_bindgen]
 #[allow(dead_code)]
 pub fn disable_bvh( ) {
@@ -404,7 +411,8 @@ pub fn disable_bvh( ) {
       match conf.scene {
         SceneEnum::Trace( ref mut s ) =>
           s.disable_bvh( ),
-        SceneEnum::March( ref mut s ) => { }
+        // Marched scenes don't have a BVH (yet)
+        SceneEnum::March( ref mut _s ) => { }
       }
     } else {
       panic!( "init not called" )
@@ -415,6 +423,7 @@ pub fn disable_bvh( ) {
 /// Actually traces all the rays
 /// Note that it only traces rays whose pixels are assigned to this instance.
 ///   (in multi-threading different instances are assigned different pixels)
+/// Returns the number of intersected BVH nodes
 #[wasm_bindgen]
 #[allow(dead_code)]
 pub fn compute( ) -> u32 {
@@ -434,6 +443,7 @@ pub fn compute( ) -> u32 {
 }
 
 /// Traces rays to obtain a depth buffer of the scene (for assigned pixels)
+/// Returns the number of intersected BVH nodes
 fn compute_depth( conf : &mut Config ) -> u32 {
   match conf.scene {
     SceneEnum::Trace( ref s ) => {
@@ -469,6 +479,10 @@ fn compute_depth( conf : &mut Config ) -> u32 {
   }
 }
 
+/// Traces rays and, instead of diffuse colors, displays the number of BVH
+///   intersections for the ray. 0-100 goes from green to blue. 100-200 goes
+///   from blue to red. Anything above 200 is red.
+/// The summed (over all rays) number of BVH hits is returned.
 fn compute_bvh( conf : &mut Config ) -> u32 {
   match conf.scene {
     SceneEnum::Trace( ref s ) => {
@@ -495,15 +509,14 @@ fn compute_bvh( conf : &mut Config ) -> u32 {
       }
       d_sum
     },
-    SceneEnum::March( ref s ) => {
+    SceneEnum::March( ref _s ) => {
+      // Ray marching scenes have no BVH's (yet), so display all black
       for i in 0..(conf.num_rays as usize) {
         let (x, y) = conf.pixel_coords[ i ];
 
-        let res = Color3::BLACK;
-
-        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
-        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
-        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = 0;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = 0;
+        conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = 0;
         conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
       }
       0 // No BVH for marching. Yet?
@@ -512,6 +525,7 @@ fn compute_bvh( conf : &mut Config ) -> u32 {
 }
 
 /// Traces rays to obtain a diffuse buffer of the scene (for assigned pixels)
+/// It returns the number of BVH nodes hit
 fn compute_color( conf : &mut Config ) -> u32 {
   let mat_stack = &mut conf.mat_stack;
 

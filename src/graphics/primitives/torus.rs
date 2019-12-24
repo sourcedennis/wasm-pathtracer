@@ -130,7 +130,7 @@ fn fix_positive( xs : &mut [ f64 ] ) -> usize {
 
 fn simplify_roots< F: FloatType >( dst : &mut [F; 4], src : &Roots< F > ) -> usize {
   match src {
-    Roots::No( fs ) => 0,
+    Roots::No( _fs ) => 0,
     Roots::One( fs ) => {
         dst[ 0 ] = fs[ 0 ];
         1

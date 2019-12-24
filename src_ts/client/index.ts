@@ -30,7 +30,7 @@ class Config {
   public isMulticore      : boolean;
   // The maximum number of ray bounces
   public rayDepth         : number;
-  // True if rendering a depth-buffer. Diffuse-buffer otherwise
+  // 0=color, 1=depth, 2=bvh
   public renderType       : number;
   // An unique id for hard-coded scenes. (Defined in the Rust part)
   public sceneId          : number;
@@ -44,7 +44,7 @@ class Config {
     this.isRunning        = true;
     this.isMulticore      = true;
     this.rayDepth         = 1;
-    this.renderType       = 0; // 0=color
+    this.renderType       = 0; // 0=color, 1=depth, 2=bvh
     this.sceneId          = 0;
     this.bvhState         = 0;
   }
@@ -123,6 +123,8 @@ class Global {
     this._fpsTracker.clear( );
   }
 
+  // Sets the BVH mode
+  // 0=disabled. 1=bvh2. 2=bvh4
   public setBvhState( s : number ): void {
     this._config.bvhState = s;
     if ( s != 0 ) {
@@ -180,6 +182,7 @@ class Global {
     this._rebuildBvh( );
   }
 
+  // Updates the size of the viewport of the renderer
   public updateViewport( width : number, height : number ) {
     this._config.width = width;
     this._config.height = height;
@@ -204,6 +207,7 @@ class Global {
     this._raytracer.storeMesh( id, mesh );
   }
 
+  // Stores a texture in the WASM module
   public storeTexture( id : number, texture : Texture ): void {
     this._textures.set( id, texture );
     this._raytracer.storeTexture( id, texture );
@@ -219,6 +223,7 @@ class Global {
     return this._onBvhDone.observable;
   }
 
+  // Produces the number of BVH hits whenever a frame is done rendering
   public onBvhHits( ): Observable< number > {
     return this._onBvhHits.observable;
   }
@@ -259,7 +264,7 @@ class Global {
           c.renderType,
           c.rayDepth,
           this._cameraController.get( ),
-          4 // TODO: Set this to 8
+          8
         );
     } else {
       tracer = new SinglecoreRaytracer(
@@ -366,15 +371,10 @@ document.addEventListener( 'DOMContentLoaded', ev => {
       appSettings.ports.updateReflectionDepth.subscribe( d => env.setReflectionDepth( d ) );
       appSettings.ports.updateRunning.subscribe( r => env.updateRunning( r ) );
       appSettings.ports.updateMulticore.subscribe( r => env.updateMulticore( r ) );
-      //appSettings.ports.updateScene.subscribe( sid => env.updateScene( sid ) );
       appSettings.ports.updateViewport.subscribe( vp => env.updateViewport( vp[ 0 ], vp[ 1 ] ) );
       appSettings.ports.updateBVHState.subscribe( b => env.setBvhState( b ) );
 
       env.onRenderDone( ).subscribe( res => appSettings.ports.updatePerformance.send( res ) );
-      // env.onCameraUpdate( ).subscribe( c => {
-      //    //app.ports.updateCamera.send( { x: c.location.x, y: c.location.y, z: c.location.z, rotX: c.rotX, rotY: c.rotY } )
-      //    //console.log( c );
-      // } );
       env.triggerCameraUpdate( );
 
       env.onBvhDone( ).subscribe( r => {
@@ -389,10 +389,6 @@ document.addEventListener( 'DOMContentLoaded', ev => {
       env.onBvhHits( ).subscribe( numHits => {
         appSettings.ports.updateBVHHits.send( numHits );
       } );
-      // AABB center  Triangle Center
-      // 2349023      2505859
-      // 2698201      2776658
-      // 3-7%
 
       env.setBvhState( 1 ); // 2-way BVH
 

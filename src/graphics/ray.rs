@@ -1,13 +1,17 @@
+// External imports
+use std::fmt;
+// Local imports
 use crate::math::Vec3;
 use crate::graphics::{PointMaterial, AABB, Color3};
-use std::fmt;
 
 // A module with `Ray` and `Hit` structures, that are useful for raytracing
 //
 // Exports:
 // * Ray
 // * Hit
+// * Bounded
 // * Tracable
+// * Marchable
 
 /// A half-line in 3-dimensional space
 ///
@@ -56,7 +60,18 @@ impl Hit {
   }
 }
 
+/// A shape which has a location and bounds in 3D space
+/// Also objects that are knowingly infinite have this trait,
+///   but should return `None` for both location and AABB.
+/// (So, basically, only immaterial objects lack this trait)
 pub trait Bounded : fmt::Debug {
+  /// Returns the location of the object in 3D space
+  /// 
+  /// The location of an object is arbitrary, and is up to the implementer to
+  ///   determine. However, it is advised to implement such that mass is
+  ///   appropriately divided over the 3 axes.
+  /// Thus, the default implementation takes the center of the object's AABB,
+  ///   which should reasonably approximate it.
   fn location( &self ) -> Option< Vec3 > {
     if let Some( b ) = self.aabb( ) {
       Some( b.center( ) )
@@ -65,8 +80,8 @@ pub trait Bounded : fmt::Debug {
     }
   }
 
-  // Returns None if the primitive has no bounding-box, which happens when it is
-  // infinite. (Such as planes)
+  /// Returns None if the primitive has no bounding-box, which happens when it is
+  /// infinite. (Such as planes)
   fn aabb( &self ) -> Option< AABB >;
 }
 
@@ -88,8 +103,17 @@ pub trait Tracable : Bounded {
   fn trace( &self, ray : &Ray ) -> Option< Hit >;
 }
 
+/// A trait for objects that can be ray-marched
+/// 
+/// The surface of ray-marched objects is typically difficult to represent.
+/// Instead, they are represented by a Signed Distance Function.
 pub trait Marchable : Bounded {
+  /// The Signed Distance from point `p` to the object
   fn sdf( &self, p : &Vec3 ) -> f32;
 
+  /// The color of the object at point `p`.
+  /// 
+  /// If `p` is not inside the object, it is advised to return the color of the
+  /// surface point closest to `p`.
   fn color( &self, p : &Vec3 ) -> Color3;
 }

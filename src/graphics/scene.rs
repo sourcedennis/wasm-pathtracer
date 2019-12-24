@@ -1,17 +1,17 @@
+// External imports
+use std::f32::INFINITY;
+use std::rc::Rc;
+// Local imports
 use crate::graphics::{Color3, AABB};
 use crate::graphics::ray::{Ray, Hit, Tracable};
 use crate::graphics::lights::Light;
 use crate::math::{Vec3, EPSILON};
 use crate::graphics::{BVHNode, BVHNode4};
-use std::f32::INFINITY;
-use std::rc::Rc;
-use std::cmp::Ordering::Equal;
 
+/// The possible BVH representations
 enum BVHEnum {
   BVH2( usize, Vec< BVHNode > ),
-  // Same representation as 2-way. Skip a check when bounds.x_min=INFINITE
   BVH4( usize, Vec< BVHNode4 > ),
-  //BVH4( usize, Vec< BVHNode4 > ),
   BVHNone
 }
 
@@ -39,7 +39,7 @@ pub struct LightHit {
 }
 
 impl Scene {
-  // Constructs a new scene with the specified lights and shapes
+  /// Constructs a new scene with the specified lights and shapes
   pub fn new( background : Color3
             , lights     : Vec< Light >
             , shapes : Vec< Rc< dyn Tracable > >
@@ -47,10 +47,14 @@ impl Scene {
     Scene { background, lights, bvh: BVHEnum::BVHNone, shapes }
   }
 
-  // Rebuilds the BVH, and returns the number of nodes
+  /// Rebuilds the BVH, and returns the number of nodes
+  /// The BVH is build with the provided number of bins in `num_bins`.
+  /// If `is_bvh4` is true, a 4-way BVH is built. Otherwise a 2-way BVH is built.
+  /// 
+  /// To disable the BVH see `Scene::disable_bvh(..)`
   pub fn rebuild_bvh( &mut self, num_bins : usize, is_bvh4 : bool ) -> u32 {
     let (num_inf, bvh) = BVHNode::build( &mut self.shapes, num_bins );
-    let mut num_nodes = 0;
+    let num_nodes;
 
     if is_bvh4 {
       let bvh4 = BVHNode4::collapse( &bvh );
@@ -66,22 +70,18 @@ impl Scene {
       self.bvh = BVHEnum::BVH2( num_inf, bvh );
     }
 
-
-    //self.bvh = BVHEnum::BVH4( num_inf, BVHNode4::from_bvh( &bvh ) );
-    // if verify_bvh( &shapes, numinf, &bvh) {
-    //   // OK
-    // } else {
-    //   panic!( "WHAT" );
-    // }
     num_nodes as u32
   }
 
+  /// Disables the BVH. On the next render, no BVH is used.
   pub fn disable_bvh( &mut self ) {
     self.bvh = BVHEnum::BVHNone;
   }
 
-  // Casts a shadow ray from the `hit_loc` to all lights in the scene
-  // All non-occluded lights are returned by this function
+  /// Casts a shadow ray from the `hit_loc` to the referenced light.
+  /// When the light is non-occluded, it returns a LightHit.
+  /// The first element in the tuple is the number of performed BVH node
+  ///   traversals.
   pub fn shadow_ray( &self, hit_loc : &Vec3, light_id : usize ) -> (usize, Option< LightHit >) {
     match &self.lights[ light_id ] {
       Light::Point( ref l ) => {
@@ -135,6 +135,8 @@ impl Scene {
     }
   }
 
+  /// Traces a ray into the scene and returns the first element hit
+  /// The first tuple-element is the number of BVH node traversals
   pub fn trace( &self, ray : &Ray ) -> (usize, Option< Hit >) {
     let (d, t) = self.trace_g( ray );
     if let Some( (_, s) ) = t {
@@ -144,6 +146,11 @@ impl Scene {
     }
   }
 
+  /// Traces a ray into the scene and returns the distance to the first element
+  /// hit. Typically this is faster than calling `Scene::trace(..)` as
+  /// computation of properties (such as normals) is avoided.
+  /// 
+  /// The first tuple-element is the number of BVH node traversals
   pub fn trace_simple( &self, ray : &Ray ) -> (usize, Option< f32 >) {
     let (d, res) = self.trace_g( ray );
     if let Some( (dis, _) ) = res {
@@ -153,6 +160,8 @@ impl Scene {
     }
   }
 
+  /// General trace function. It returns the distance and reference to the first object hit.
+  /// The first tuple-element is the number of BVH node traversals
   fn trace_g< 'a >( &'a self, ray : &Ray ) -> (usize, Option< (f32, &'a Rc< dyn Tracable >) >) {
     match &self.bvh {
       BVHEnum::BVH2( numinf, bvh ) => {
@@ -165,10 +174,10 @@ impl Scene {
       },
       BVHEnum::BVH4( numinf, bvh ) => {
         if let Some( h1 ) = trace_shapes( ray, &self.shapes[..*numinf] ) {
-          let (d2, h2) = traverse_bvh4_guarded( ray, *numinf, &bvh, &self.shapes, 0, h1.0 );
+          let (d2, h2) = traverse_bvh4( ray, *numinf, &bvh, &self.shapes, 0, h1.0 );
           (d2, closest( Some( h1 ), h2 ))
         } else {
-          traverse_bvh4_guarded( ray, *numinf, &bvh, &self.shapes, 0, INFINITY )
+          traverse_bvh4( ray, *numinf, &bvh, &self.shapes, 0, INFINITY )
         }
       },
       _ => {
@@ -178,6 +187,9 @@ impl Scene {
   }
 }
 
+/// Traverses the 2-way BVH starting at node `node_i`.
+/// `node_i` is only entered if its AABB hits the ray, which is checked.
+///   (That check being the "guard")
 #[allow(dead_code)]
 fn traverse_bvh_guarded< 'a >(
       ray     : &Ray
@@ -202,7 +214,10 @@ fn traverse_bvh_guarded< 'a >(
   }
 }
 
-// Assume the bounding box of `node_i` *does* intersect
+/// Traverses a 2-way BVH starting at node `node_i`
+/// The AABB of `node_i` are *not* intersected with the ray, thus only call
+///   this if `node_i`'s AABB is known to intersect. (Or if checking this is
+///   considered to be not worth it)
 fn traverse_bvh< 'a >(
       ray     : &Ray
     , num_inf : usize
@@ -212,6 +227,9 @@ fn traverse_bvh< 'a >(
     , max_dis : f32 ) -> (usize, Option< (f32, &'a Rc< dyn Tracable >) >) {
 
   let node = &bvh[ node_i ];
+
+  // A big nested if that performs ordered traversal of the BVH very fast
+  // Basically, any loop for this node is manually unwound.
   if node.count != 0 { // leaf
     let offset = node.left_first as usize;
     let size = node.count as usize;
@@ -268,21 +286,7 @@ fn traverse_bvh< 'a >(
   }
 }
 
-
-#[allow(dead_code)]
-fn traverse_bvh4_guarded< 'a >(
-      ray     : &Ray
-    , num_inf : usize
-    , bvh     : &[BVHNode4]
-    , shapes  : &'a [Rc< dyn Tracable >]
-    , node_i  : i32
-    , max_dis : f32 ) -> (usize, Option< (f32, &'a Rc< dyn Tracable >) >) {
-
-  traverse_bvh4( ray, num_inf, bvh, shapes, node_i, max_dis )
-}
-
-// Assume the bounding box of `node_i` *does* intersect
-//   and `node_i` is *not* a skipped node
+/// Traverses a BVH starting at node `node_i`.
 #[allow(dead_code)]
 fn traverse_bvh4< 'a >(
       ray         : &Ray
@@ -298,21 +302,18 @@ fn traverse_bvh4< 'a >(
     let num_shapes = ( ( ni >> 27 ) & 0x3 ) as usize;
     let shape_index = ( ni & 0x7FFFFFF ) as usize;
 
-    // (1, trace_shapes_md( ray, &shapes[(num_inf+offset)..(num_inf+offset+size)], max_dis ))
     (1, trace_shapes_md( ray, &shapes[(num_inf+shape_index)..(num_inf+shape_index+num_shapes)], max_dis ))
   } else { // node
     let node = &bvh[ node_i as usize ];
     let num_children  = node.num_children as usize;
 
-    // ( num_traversed, res )
-    let hits = node.child_bounds.hit( ray );
+    let hits = node.child_bounds.hit( ray ); // The SIMD intersection
     
+    // Store and order the children
     let mut children = [ (0, INFINITY), (0, INFINITY), (0, INFINITY), (0, INFINITY) ];
-
     for i in 0..num_children {
       children[ i ] = ( node.children[ i ], hits.extract( i ) );
     }
-
     sort_small( &mut children, num_children );
 
     let (mut num_traversed, mut res) = ( 1, None );
@@ -335,6 +336,8 @@ fn traverse_bvh4< 'a >(
   }
 }
 
+/// A fast sorting function for arrays with *at most 4 elements*.
+/// The elements are sorted by their second tuple-element
 fn sort_small( a : &mut [(i32, f32)], n : usize ) {
   if n == 2 {
     if a[ 1 ].1 < a[ 0 ].1 {
@@ -379,14 +382,9 @@ fn sort_small( a : &mut [(i32, f32)], n : usize ) {
   }
 }
 
-// fn aabb_distance_inf( ray : &Ray, aabb : &AABB ) -> f32 {
-//   if let Some( h ) = aabb.hit( ray ) {
-//     h
-//   } else {
-//     -INFINITY
-//   }
-// }
-
+/// Returns the distance from the ray to the AABB, but only if this hit occurs
+/// before `max_dis`. If no hit occurs, or if the hit distance is negative, or
+/// the hit is after `max_dis`, then None is returned.
 fn aabb_distance( ray : &Ray, aabb : &AABB, max_dis : f32 ) -> Option< f32 > {
   if let Some( h ) = aabb.hit( ray ) {
     if h < max_dis {
@@ -399,6 +397,7 @@ fn aabb_distance( ray : &Ray, aabb : &AABB, max_dis : f32 ) -> Option< f32 > {
   }
 }
 
+/// Returns the element with the lowest distance
 fn closest< 'a >( a: Option< (f32, &'a Rc< dyn Tracable >) >
                 , b: Option< (f32, &'a Rc< dyn Tracable >) >
                 ) -> Option< (f32, &'a Rc< dyn Tracable >) > {
@@ -417,6 +416,8 @@ fn closest< 'a >( a: Option< (f32, &'a Rc< dyn Tracable >) >
   }
 }
 
+/// Intersects the ray with all shapes in `shapes`, and returns the element
+///   whose distance is closest (but not negative).
 fn trace_shapes< 'a >( ray     : &Ray
                      , shapes  : &'a [Rc< dyn Tracable >]
                      ) -> Option< (f32, &'a Rc< dyn Tracable >) > {
@@ -437,6 +438,9 @@ fn trace_shapes< 'a >( ray     : &Ray
   best_hit
 }
 
+/// Intersects the ray with all shapes in `shapes`, and returns the element
+///   whose distance is closest (but not negative). If the found shape is
+///   located beyond `max_dis`, then None is returned.
 fn trace_shapes_md < 'a >( ray     : &Ray
                          , shapes  : &'a [Rc< dyn Tracable >]
                          , max_dis : f32

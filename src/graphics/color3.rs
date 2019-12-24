@@ -1,5 +1,7 @@
-use crate::math::{clamp, Vec3};
+// External imports
 use std::ops;
+// Local imports
+use crate::math::{clamp, Vec3};
 
 /// A floating point Color class with operations
 /// Note that Color3's and Vec3's are semantically different
@@ -100,11 +102,3 @@ impl ops::AddAssign< Color3 > for Color3 {
     self.blue  = clamp( self.blue  + v.blue,  0.0_f32, 1.0_f32 );
   }
 }
-
-// impl ops::Mul< Color3 > for Color3 {
-//   type Output = Color3;
-
-//   fn mul( self, v: Color3 ) -> Color3 {
-//     Color3::new( self.red * v.red, self.green * v.green, self.blue * v.blue )
-//   }
-// }

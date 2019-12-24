@@ -22,6 +22,3 @@ pub use texture::{Texture};
 pub use aabb::{AABB, AABBx4};
 pub use bvh::{BVHNode};
 pub use bvh4::{BVHNode4};
-
-//pub use primitives::{TracablePrimitive};
-// pub use bvh4::{BVHNode4};

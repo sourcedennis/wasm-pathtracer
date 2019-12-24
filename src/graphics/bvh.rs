@@ -1,8 +1,16 @@
+// External imports
+use std::rc::Rc;
+// Local imports
 use crate::graphics::AABB;
 use crate::graphics::ray::Tracable;
 use crate::math::Vec3;
-use std::rc::Rc;
 
+/// A node in a 2-way BVH
+/// 
+/// It represents both internal nodes and leaves. It is an internal node when
+/// `count` is 0; it is a leaf otherwise (where it represents the number of shapes).
+/// `left_first` represents the id of the left BVH child (if it is a internal node)
+///   and the offset in the array of primitives (if it is a leaf).
 #[derive(Copy,Clone,Debug)]
 #[repr(align(32))]
 pub struct BVHNode {
@@ -12,48 +20,67 @@ pub struct BVHNode {
 }
 
 impl BVHNode {
+  /// Constructs a new leaf node. A leaf contains `count` shapes in the shapes
+  /// array, starting at offset `offset`.
   pub fn leaf( bounds : AABB, offset : u32, count : u32 ) -> BVHNode {
     BVHNode { bounds, left_first: offset, count }
   }
 
+  /// Constructs a new internal node. An internal node has two children, where
+  /// `first` is the index of the left child. The right child *must* be located
+  /// at index `first+1`.
   pub fn node( bounds : AABB, first : u32 ) -> BVHNode {
     BVHNode { bounds, left_first: first, count: 0 }
   }
 
+  /// Returns true if the node is a leaf
   pub fn is_leaf( &self ) -> bool {
     self.count > 0
   }
 
+  /// Constructs a 2-way BVH for the shapes in `shapes`. The order of these
+  /// shapes will be modified.
+  /// Shapes with an infinite size (e.g. planes) are *not* added to the BVH;
+  ///   instead, these are moved to the start of the array.
+  /// The first element in the returned tuple is the number of such elements.
+  ///   The second is the BVH.
+  /// The root node is located at index 0 in the array.
   pub fn build( shapes : &mut [Rc< dyn Tracable >], num_bins : usize ) -> (usize, Vec< BVHNode >) {
     build_bvh( shapes, num_bins )
   }
 
-  // Verifies whether the BVH is valid for the shapes
-  // It checks:
-  // - If the shapes in a leaf are fully contained in the bounds of the leaf
-  // - If the bounds of a node's children are contained within its own bounds
-  // Only if both conditions hold for all shapes and leaves, is the BVH valid
+  /// Verifies whether the BVH is valid for the shapes
+  /// It checks:
+  /// - If the shapes in a leaf are fully contained in the bounds of the leaf
+  /// - If the bounds of a node's children are contained within its own bounds
+  /// Only if both conditions hold for all shapes and leaves, is the BVH valid
   pub fn verify( shapes : &[Rc< dyn Tracable >], num_infinite : usize, bvh : &Vec< BVHNode > ) -> bool {
     verify_bvh( shapes, num_infinite, bvh )
   }
 
+  /// Returns the depth of the tree
+  /// The depth is the maximum number of edges from the root to any leaf
   pub fn depth( nodes : &Vec< BVHNode > ) -> u32 {
     bvh_depth( nodes )
   }
 
+  /// Returns the number of nodes in the tree (this includes leaves)
   pub fn node_count( nodes : &Vec< BVHNode > ) -> usize {
-    BVHNode::count_node( nodes, 0 )
+    BVHNode::count_node_rec( nodes, 0 )
   }
 
-  fn count_node( nodes : &Vec< BVHNode >, i : usize ) -> usize {
-    if nodes[ i ].count > 0 { // leaf node
+  // Recursively counts the number of nodes in the tree, starting at index `i`.
+  fn count_node_rec( nodes : &Vec< BVHNode >, i : usize ) -> usize {
+    if nodes[ i ].is_leaf( ) { // leaf node
       1
     } else {
-      1 + BVHNode::count_node( nodes, nodes[ i ].left_first as usize ) + BVHNode::count_node( nodes, nodes[ i ].left_first as usize + 1 )
+      1 + BVHNode::count_node_rec( nodes, nodes[ i ].left_first as usize ) + BVHNode::count_node_rec( nodes, nodes[ i ].left_first as usize + 1 )
     }
   }
 }
 
+/// A Shape representation that is used during the construction
+/// This avoids having the re-compute the location and AABB many times.
 #[derive(Clone)]
 struct ShapeRep {
   shape    : Rc< dyn Tracable >,
@@ -61,6 +88,7 @@ struct ShapeRep {
   bounds   : AABB
 }
 
+/// Used to initialise "empty" array elements
 static BVH_PLACEHOLDER: BVHNode =
   BVHNode {
     bounds:     AABB::EMPTY
@@ -68,16 +96,17 @@ static BVH_PLACEHOLDER: BVHNode =
   , count:      0
   };
 
-type Utility = f32;
-
+// Builds a 2-way BVH with the given number of bins
 // Uses O(k * n log n) time, where `k` is the number of bins
+// Returns the number of "infinite" nodes that did not fit in the tree,
+//   together with the BVH tree.
 fn build_bvh( shapes : &mut [Rc< dyn Tracable >], num_bins : usize ) -> (usize, Vec< BVHNode >) {
   let (num_infinite, mut reps) = shape_reps( shapes );
 
   let rep_len = reps.len( );
   let mut dst  = Vec::with_capacity( rep_len * 2 );
   dst.push( BVH_PLACEHOLDER );
-  dst.push( BVH_PLACEHOLDER ); // Ignore. This makes sure 2 children fit in a cacheline
+  dst.push( BVH_PLACEHOLDER ); // Ignore. This makes sure 2 children fit in a cache-line
 
   if rep_len == 0 {
     // Keep the placeholder
@@ -85,8 +114,7 @@ fn build_bvh( shapes : &mut [Rc< dyn Tracable >], num_bins : usize ) -> (usize, 
   } else {
     let mut tmp_bins = BinResult::new_many( num_bins, rep_len );
     let reps_aabb = aabb( &reps ).unwrap( );
-    dst[0] = subdivide( &mut dst, &mut reps, 0, rep_len, num_bins, &reps_aabb, &mut tmp_bins );
-    //dst[0] = BVHNode::Leaf { bounds: aabb( &reps ).unwrap( ), offset: 0, size: reps.len( ) };
+    dst[0] = subdivide( &mut dst, &mut reps, 0, rep_len, &reps_aabb, &mut tmp_bins );
 
     for i in 0..reps.len( ) {
       shapes[ i + num_infinite ] = reps[ i ].shape.clone( );
@@ -96,6 +124,7 @@ fn build_bvh( shapes : &mut [Rc< dyn Tracable >], num_bins : usize ) -> (usize, 
   }
 }
 
+// Returns true if the BVH is valid. (See `BVHNode::verify()`)
 fn verify_bvh( shapes : &[Rc< dyn Tracable >], num_infinite : usize, bvh : &Vec< BVHNode > ) -> bool {
   let a = verify_bvh_bounds( shapes, num_infinite, bvh, 0 ).is_some( );
   let mut contained = vec![false; shapes.len()-num_infinite];
@@ -109,6 +138,7 @@ fn verify_bvh( shapes : &[Rc< dyn Tracable >], num_infinite : usize, bvh : &Vec<
   a && has_all
 }
 
+// Sets `true` into `contained` for each element that is contained in the BVH rooted at node `i`.
 fn verify_bvh_contains( contained : &mut [bool], bvh : &Vec< BVHNode >, i : usize ) {
   if bvh[ i ].count == 0 { // node
     verify_bvh_contains( contained, bvh, bvh[ i ].left_first as usize );
@@ -121,6 +151,8 @@ fn verify_bvh_contains( contained : &mut [bool], bvh : &Vec< BVHNode >, i : usiz
   }
 }
 
+// Returns `Some(..)` if the bounds of the BVH rooted at node `i` contains the
+//   bounds of its children; and this is recursively true for their children.
 fn verify_bvh_bounds( shapes : &[Rc< dyn Tracable >], num_infinite : usize, bvh : &Vec< BVHNode >, i : usize ) -> Option< AABB > {
   let n = &bvh[ i ];
   let bounds = &n.bounds;
@@ -161,10 +193,12 @@ fn verify_bvh_bounds( shapes : &[Rc< dyn Tracable >], num_infinite : usize, bvh 
   }
 }
 
+// Returns the depth of the BVH (See `BVHNode::depth(..)`)
 fn bvh_depth( nodes : &Vec< BVHNode > ) -> u32 {
   depth_rec( nodes, 0 )
 }
 
+// Recursively finds the depth of the BVH rooted in node `i`.
 fn depth_rec( nodes : &Vec< BVHNode >, i : usize ) -> u32 {
   let n = &nodes[ i ];
   if n.count != 0 { // leaf
@@ -175,52 +209,57 @@ fn depth_rec( nodes : &Vec< BVHNode >, i : usize ) -> u32 {
   }
 }
 
-// `offset` and `length` index into `shapes`. Slices cannot be used, as absolute offsets are stored in the BVH.
-fn subdivide( dst            : &mut Vec< BVHNode >
-            , shapes         : &mut [ShapeRep]
-            , offset         : usize
-            , length         : usize
-            , num_bins       : usize
-            , parent_aabb    : &AABB
-            , tmp_bins       : &mut BinResult< ShapeRep >
+// Subdivide the region in `shapes` (marked by `offset` and `length`)
+// It splits along the largest axis
+// (Slices are not used, as absolute offsets are stored in the BVH)
+fn subdivide( dst         : &mut Vec< BVHNode >
+            , shapes      : &mut [ShapeRep]
+            , offset      : usize
+            , length      : usize
+            , parent_aabb : &AABB
+              // Storage for the bins that is pre-allocated
+            , tmp_bins    : &mut BinResult< ShapeRep >
             ) -> BVHNode {
-  match split( &mut shapes[offset..(offset+length)], num_bins, parent_aabb, tmp_bins ) {
+  match split( &mut shapes[offset..(offset+length)], parent_aabb, tmp_bins ) {
     SplitRes::DoSplit( split_index, l_aabb, r_aabb ) => {
       let bvh_left_id = dst.len( );
       dst.push( BVH_PLACEHOLDER );
       dst.push( BVH_PLACEHOLDER );
 
-      dst[ bvh_left_id + 0 ] = subdivide( dst, shapes, offset, split_index, num_bins, &l_aabb, tmp_bins );
-      dst[ bvh_left_id + 1 ] = subdivide( dst, shapes, offset + split_index, length - split_index, num_bins, &r_aabb, tmp_bins );
+      dst[ bvh_left_id + 0 ] = subdivide( dst, shapes, offset, split_index, &l_aabb, tmp_bins );
+      dst[ bvh_left_id + 1 ] = subdivide( dst, shapes, offset + split_index, length - split_index, &r_aabb, tmp_bins );
 
-      //BVHNode::Node { bounds: l_aabb.join( &r_aabb ), left_index: bvh_left_id }
       BVHNode::node( l_aabb.join( &r_aabb ), bvh_left_id as u32 )
     },
     SplitRes::DontSplit( parent_aabb ) => {
       // Otherwise, don't split and make a leaf for the shapes
-      //BVHNode::Leaf { bounds: parent_aabb, offset, size: length }
       BVHNode::leaf( parent_aabb, offset as u32, length as u32 )
     }
   }
 }
 
+// The result for a split
 enum SplitRes {
+  // (semi-optimal split index in shapes array, left AABB, right AABB)
   DoSplit( usize, AABB, AABB ),
+  // No utility-improving split was found. Returns the AABB of all contained shapes
   DontSplit( AABB )
 }
 
 // Find the best split among all 3 axes, accepts the one with the best utility.
 //   But only if that utility is better (i.e. lower) than the parent's
+// When a split is performed, the shapes in `shapes` are "reordered"
+//   That is, all nodes in the left AABB are to the left of the split-index
+//   and the nodes in the right AABB are to the right of the split-index
 fn split( shapes      : &mut [ShapeRep]
-        , num_bins    : usize
         , parent_aabb : &AABB
+          // Storage for the bins that is pre-allocated
         , tmp_bins    : &mut BinResult< ShapeRep >
         ) -> SplitRes {
-  // (x_bins, xl_aabb, xr_aabb, x_index)
   if shapes.len( ) <= 1 {
     SplitRes::DontSplit( aabb( shapes ).unwrap( ) )
   } else if let Some( ( l_aabb, r_aabb, index ) ) =
-      split_longest_axis( shapes, num_bins, parent_aabb, tmp_bins ) {
+      split_longest_axis( shapes, parent_aabb, tmp_bins ) {
 
     let utility = l_aabb.surface( ) * (index as f32) + r_aabb.surface( ) * ( shapes.len( ) - index ) as f32;
     let parent_aabb = l_aabb.join( &r_aabb );
@@ -237,9 +276,11 @@ fn split( shapes      : &mut [ShapeRep]
   }
 }
 
+// Splits along the longest axis
+// If this split the shapes in `shapes` are placed on the appropriate side of
+//   the split index.
 fn split_longest_axis(
       shapes      : &mut [ShapeRep]
-    , num_bins    : usize
     , parent_aabb : &AABB
     , dst_bins    : &mut BinResult< ShapeRep >
     ) -> Option< (AABB, AABB, usize) > {
@@ -261,23 +302,6 @@ fn split_longest_axis(
   }
 }
 
-// leq function
-fn best_of< 'a, T, FVal: Fn(&T) -> f32 >( vals : &'a [Option< T >], f_val : FVal ) -> Option< &'a T > {
-  let mut val : Option< &'a T > = None;
-  for v in vals {
-    if let Some( ref cv ) = val {
-      if let Some( av ) = v {
-        if f_val( av ) < f_val( cv ) {
-          val = Some( av );
-        }
-      }
-    } else if let Some( av ) = v {
-      val = Some( av );
-    }
-  }
-  val
-}
-
 /// Find the optimal split between bins in O(n*k) time along the axis represented by F.
 /// Here `k` is the number of bins and `n` the number of shapes.
 /// As `k` is constant, the time complexity can be considered O(n).
@@ -294,10 +318,13 @@ fn split_axis< FAxis : Fn(&ShapeRep) -> f32 >(
     return None;
   }
 
+  // Put the shapes in their appropriate bins
   if !bin( shapes, f_axis, dst_bins ) {
     return None;
   };
 
+  // Now find the optimal split between the bins
+  //   (which is semi-optimal between the shapes in the bins)
   let mut l = 0;
   let mut r = num_bins - 1;
 
@@ -342,8 +369,8 @@ fn split_axis< FAxis : Fn(&ShapeRep) -> f32 >(
   Some( ( l_aabb, r_aabb, l_cnt ) )
 }
 
-/// Returns the number of infinitely-sides shapes, and puts them *left*
-/// For the non-infinite shapes, returns a vector of `ShapeRep`s
+/// Returns the number of infinitely-sized shapes, and puts them *left* in `shapes`.
+/// For the non-infinite shapes, returns a vector of `ShapeRep`s.
 ///
 /// WARNING: The order of `shapes` and `dst` is *not* the same
 fn shape_reps( shapes : &mut [Rc< dyn Tracable >] ) -> ( usize, Vec< ShapeRep > ) {
@@ -366,6 +393,7 @@ fn shape_reps( shapes : &mut [Rc< dyn Tracable >] ) -> ( usize, Vec< ShapeRep > 
   ( num_infinite, dst )
 }
 
+// Returns the AABB around all shapes in `s`.
 fn aabb( s : &[ShapeRep] ) -> Option< AABB > {
   if s.len( ) == 0 {
     None
@@ -378,6 +406,9 @@ fn aabb( s : &[ShapeRep] ) -> Option< AABB > {
   }
 }
 
+// Bin all elements in `xs` into bins in `dst`.
+// The function `f` determines the "value" of the nodes
+// The nodes are uniformly binned by this value.
 fn bin< T: Clone, F: Fn(&T) -> f32 >( xs : &[T], f : F, dst : &mut BinResult< T > ) -> bool {
   let n = xs.len( );
   let mut min_v = f( &xs[ 0 ] );
@@ -405,11 +436,13 @@ fn bin< T: Clone, F: Fn(&T) -> f32 >( xs : &[T], f : F, dst : &mut BinResult< T 
   }
 }
 
+/// A set of bins with elements of type `T`
 struct BinResult< T > {
   bins : Vec< Vec< T > >
 }
 
 impl< T: Clone > BinResult< T > {
+  /// Returns a new set of bins with the provided capacity and bin-count
   fn new_many( num_bins : usize, bin_size : usize ) -> BinResult< T > {
     let mut bins = Vec::with_capacity( num_bins );
     for _i in 0..num_bins {
@@ -418,12 +451,14 @@ impl< T: Clone > BinResult< T > {
     BinResult { bins }
   }
 
+  /// Clears all bins
   fn clear( &mut self ) {
     for i in 0..self.bins.len( ) {
       self.bins[ i ].clear( );
     }
   }
 
+  /// Writes the contents of the bins sequentially to `dst`
   fn write_to( &self, dst : &mut [T] ) {
     let mut i = 0;
     for b in &self.bins {
@@ -434,6 +469,7 @@ impl< T: Clone > BinResult< T > {
     }
   }
 
+  /// Returns the number of bins
   fn num_bins( &self ) -> usize {
     self.bins.len( )
   }

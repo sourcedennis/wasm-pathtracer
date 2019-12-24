@@ -1,7 +1,9 @@
+// External imports
+use std::fmt;
+// Local imports
 use crate::graphics::Color3;
 use crate::graphics::Texture;
 use crate::math::{ Vec2, Vec3 };
-use std::fmt;
 
 // Exports:
 // * Material
@@ -61,17 +63,21 @@ impl Material {
     Material::Refract { absorption, refractive_index, ks: 0.0, n: 0.0 }
   }
 
+  /// Returns a new material with the Phong specular components set
   pub fn set_specular( self, new_ks : f32, new_n : f32 ) -> Material {
     match self {
-      Material::Reflect { color, reflection, ks, n } =>
+      Material::Reflect { color, reflection, .. } =>
         Material::Reflect { color, reflection, ks: new_ks, n: new_n },
-      Material::ReflectTexture { texture, reflection, ks, n } =>
+      Material::ReflectTexture { texture, reflection, .. } =>
         Material::ReflectTexture { texture, reflection, ks: new_ks, n: new_n },
-      Material::Refract { absorption, refractive_index, ks, n } =>
+      Material::Refract { absorption, refractive_index, .. } =>
         Material::Refract { absorption, refractive_index, ks: new_ks, n: new_n }
     }
   }
 
+  /// Evaluates the material generally to a `PointMaterial` if possible.
+  /// If a material cannot be generally evaluated (as they vary per
+  ///   surface-point) it returns `None`.
   pub fn evaluate_simple( &self ) -> Option< PointMaterial > {
     match self {
       Material::Reflect { .. }  =>
@@ -125,6 +131,9 @@ impl PointMaterial {
   }
 }
 
+/// Nicely prints a Material for debugging
+/// Note that not all elements are printed in all cases. When no Phong components
+///   are printed, it may be assumed they are absent.
 impl fmt::Debug for Material {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {

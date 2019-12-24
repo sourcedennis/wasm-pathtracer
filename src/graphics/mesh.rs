@@ -1,7 +1,10 @@
+// External imports
+use std::rc::Rc;
+// Local imports
 use crate::math::{Vec3};
 use crate::graphics::ray::{ Tracable };
-use std::rc::Rc;
 
+/// A 3D mesh
 pub enum Mesh {
   Preload( Vec< Vec3 > ),
   // After loading, put the triangles into Rc boxes

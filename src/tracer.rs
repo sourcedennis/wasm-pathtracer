@@ -233,7 +233,7 @@ fn specular_lights_color( scene : &Scene, hit_loc : &Vec3, i : &Vec3, normal : &
 /// Returns the amount (in range (0,1)) of reflection, and the angle of refraction
 /// If None is returned, total internal reflection applies (and no refraction at all)
 /// This applies both fresnel and Snell's law for refraction
-fn refract_fresnel( i : Vec3, mut n : Vec3, prev_ior : f32, ior : f32 ) -> Option< ( f32, Vec3 ) > {
+fn refract_fresnel( i : Vec3, n : Vec3, prev_ior : f32, ior : f32 ) -> Option< ( f32, Vec3 ) > {
   let cosi    = math::clamp( -i.dot( n ), -1.0, 1.0 );
   let cosi_sq = cosi * cosi;
   // "Real squares cannot be less than 0" -Dennis

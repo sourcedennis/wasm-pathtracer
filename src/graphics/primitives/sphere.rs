@@ -1,4 +1,6 @@
+// External imports
 use std::f32::consts::PI;
+// Local imports
 use crate::math::{Vec2, Vec3};
 use crate::graphics::{Color3, Material, PointMaterial, AABB};
 use crate::graphics::ray::{Ray, Tracable, Bounded, Marchable, Hit};

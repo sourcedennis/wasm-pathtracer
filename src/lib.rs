@@ -1,3 +1,5 @@
+#![ allow( dead_code ) ] // unused_imports
+
 mod data;
 mod graphics;
 mod math;

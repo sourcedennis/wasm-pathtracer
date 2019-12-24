@@ -1,7 +1,9 @@
-use crate::graphics::ray::{Ray};
-use crate::math::Vec3;
+// External imports
 use std::f32::INFINITY;
 use packed_simd::*;
+// Local imports
+use crate::graphics::ray::{Ray};
+use crate::math::Vec3;
 
 /// An Axis-Aligned bounding box
 /// Fast intersection with their distance is available
@@ -46,13 +48,13 @@ impl AABB {
     AABB { x_min, y_min, z_min, x_max, y_max, z_max }
   }
 
-  /*pub fn area( &self ) -> f32 {
-    let x_size : f32 = self.x_max - self.x_min;
-    let y_size : f32 = self.y_max - self.y_min;
-    let z_size : f32 = self.z_max - self.z_min;
+  // pub fn area( &self ) -> f32 {
+  //   let x_size : f32 = self.x_max - self.x_min;
+  //   let y_size : f32 = self.y_max - self.y_min;
+  //   let z_size : f32 = self.z_max - self.z_min;
 
-    x_size * y_size * z_size
-  }*/
+  //   x_size * y_size * z_size
+  // }
 
   pub fn surface( &self ) -> f32 {
     let x_size = self.x_max - self.x_min;

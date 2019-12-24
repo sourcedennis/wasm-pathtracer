@@ -1,10 +1,13 @@
+// External imports
+use std::rc::Rc;
+// Local imports
 use crate::graphics::{Color3};
 use crate::graphics::lights::Light;
 use crate::graphics::ray::{Ray, Marchable};
 use crate::graphics::scene::{LightHit};
 use crate::math::{EPSILON, Vec3};
-use std::rc::Rc;
 
+/// A scene that can be ray-marched
 pub struct MarchScene {
   pub background : Color3,
   pub lights     : Vec< Light >,
@@ -22,6 +25,7 @@ impl MarchScene {
   
   // Casts a shadow ray from the `hit_loc` to all lights in the scene
   // All non-occluded lights are returned by this function
+  //
   // WARNING: Shadow-biassing should be applied externally
   pub fn shadow_ray( &self, hit_loc : &Vec3, light_id : usize ) -> Option< LightHit > {
     match &self.lights[ light_id ] {
@@ -75,6 +79,8 @@ impl MarchScene {
     }
   }
 
+  /// March a ray into the scene. The ray travels no further than `max_depth`.
+  /// Returns the hit distance and object
   pub fn march< 'a >( &'a self, ray : &Ray, max_depth : f32 ) -> Option< ( f32, &'a Rc< dyn Marchable >) > {
     let mut depth = 0.0;
 
@@ -94,6 +100,10 @@ impl MarchScene {
     None
   }
 
+  /// Find the signed-distance to point `p` in the scene.
+  /// It returnes the distance to the closest object, as well as that object
+  /// 
+  /// WARNING: The scene should contain at least one shape
   pub fn sdf< 'a >( &'a self, p : &Vec3 ) -> ( f32, &'a Rc< dyn Marchable >) {
     // assert( shapes.len( ) > 0 )
     let mut x = ( self.shapes[ 0 ].sdf( p ), &self.shapes[ 0 ] );

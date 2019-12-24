@@ -80,3 +80,15 @@ export interface MsgW2CComputeDone extends Msg {
 export interface MsgW2CBvhDone extends Msg {
   type : 'bvh_done'
 }
+
+export interface MsgW2CTextureDone extends Msg {
+  type: 'texture_done'
+}
+
+export interface MsgW2CMeshDone extends Msg {
+  type: 'mesh_done'
+}
+
+export interface MsgW2CUpdateSceneDone extends Msg {
+  type: 'update_scene_done'
+}

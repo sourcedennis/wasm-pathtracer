@@ -1,3 +1,4 @@
+// Local imports
 use crate::math::{Vec2, Vec3};
 use crate::graphics::Material;
 use crate::graphics::ray::{Ray, Tracable, Bounded, Hit};
