@@ -118,19 +118,22 @@ impl BVHNode4 {
   }
 }
 
-// Collapse the tree by backtracking on the minimal cost in `memo` (which is obtained from `r_cost(..)`)
-// It returns a collection of nodes that replace the `node_i` (from the 2-way BVH) in the 4-way BVH.
-// When a node is discarded (because it is replaced by its children) it will return multiple new nodes (being the children)
+/// Collapse the tree by backtracking on the minimal cost in `memo` (which is obtained from `r_cost(..)`)
+/// It returns a collection of nodes that replace the `node_i` (from the 2-way BVH) in the 4-way BVH;
+/// for each node the AABB is also returned, such that it can be included in the parent node.
+/// When a node is discarded (because it is replaced by its children), the multiple replacing children
+/// are returned.
+/// Note that `cutsize` is the maximum number of nodes that node `node_i` can be replaced with.
 fn collapse_with( dst : &mut Vec< BVHNode4 >, bvh : &Vec< BVHNode >, memo : &Vec< Option< Vec< f32 > > >, node_i : usize, cutsize : usize ) -> Vec< (AABB, i32) > {
   let bvh_placeholder = BVHNode4 { child_bounds: AABBx4::empty( ), children: [i32::MIN, i32::MIN, i32::MIN, i32::MIN], num_children: 0 };
 
-  // At this point `memo` is already filled in with costs for each tree-cut
+  // At this point `memo` is already filled with costs for each tree-cut
   // Backtrack on this to build the 4-way BVH with minimal cost
   
   if bvh[ node_i ].is_leaf( ) { // leaf
     // A leaf still has an AABB, but no node in `dst`
-    let count = 0x80000000 | ( bvh[ node_i ].count << 27 ) | ( bvh[ node_i ].left_first );
-    vec![ ( bvh[ node_i ].bounds, unsafe { std::mem::transmute::< u32, i32 >( count ) } ) ]
+    let shape_range = 0x80000000 | ( bvh[ node_i ].count << 27 ) | ( bvh[ node_i ].left_first );
+    vec![ ( bvh[ node_i ].bounds, unsafe { std::mem::transmute::< u32, i32 >( shape_range ) } ) ]
   } else {
     let node_left_i  = bvh[ node_i ].left_first as usize;
     let node_right_i = ( node_left_i + 1 ) as usize;
@@ -138,28 +141,18 @@ fn collapse_with( dst : &mut Vec< BVHNode4 >, bvh : &Vec< BVHNode >, memo : &Vec
     // Finds the optimal `t`, being the number of children this node should have
     let t = find_t( bvh, memo, node_i, cutsize );
 
-    if t == 1 { // Keep the node
+    if t == 1 { // Keep the node (So it can have 4 children)
       let index = dst.len( );
       dst.push( bvh_placeholder );
 
-      // Find optimal `i`. Being the number of children the left-child has. The right child has `t-i` nodes.
-      let mut i_min = 1;
-      let mut i_min_val = node_flat_cost( memo, bvh, node_left_i, 1 ) + node_flat_cost( memo, bvh, node_right_i, 4 - 1 );
-      
-      for i in 2..4 {
-        let i_val = node_flat_cost( memo, bvh, node_left_i, i ) + node_flat_cost( memo, bvh, node_right_i, 4 - i );
-
-        if i_val < i_min_val {
-          i_min = i;
-          i_min_val = i_val;
-        }
-      }
-
-      let mut children = [i32::MIN, i32::MIN, i32::MIN, i32::MIN];
+      // Find optimal `i`. Being the number of children the left-child has. The right child has `4-i` children.
+      let i_min = find_i( bvh, memo, node_left_i, node_right_i, 4 );
 
       let lcs = collapse_with( dst, bvh, memo, node_left_i, i_min );
       let rcs = collapse_with( dst, bvh, memo, node_right_i, 4 - i_min );
 
+      // Build the components of the `BVHNode4`, and add the node to the BVH
+      let mut children = [i32::MIN, i32::MIN, i32::MIN, i32::MIN];
       let mut bounds_box = [ AABB::EMPTY, AABB::EMPTY, AABB::EMPTY, AABB::EMPTY ];
       let mut j = 0;
       for e in &lcs {
@@ -178,18 +171,9 @@ fn collapse_with( dst : &mut Vec< BVHNode4 >, bvh : &Vec< BVHNode >, memo : &Vec
       dst[ index ] = BVHNode4::node( simd_bounds, children, num_children as u32 );
 
       vec![ ( simd_bounds.extract_hull( num_children ), index as i32 ) ]
-    } else { // Discard the node
-      let mut i_min = 1;
-      let mut i_min_val = node_flat_cost( memo, bvh, node_left_i, 1 ) + node_flat_cost( memo, bvh, node_right_i, t - 1 );
-      
-      for i in 2..t {
-        let i_val = node_flat_cost( memo, bvh, node_left_i, i ) + node_flat_cost( memo, bvh, node_right_i, t - i );
-
-        if i_val < i_min_val {
-          i_min = i;
-          i_min_val = i_val;
-        }
-      }
+    } else { // Discard the node (So it has `t` children, where `t < cutsize`)
+      // Find optimal `i`. Being the number of children the left-child has. The right child has `t-i` children.
+      let i_min = find_i( bvh, memo, node_left_i, node_right_i, t );
 
       let c1 = collapse_with( dst, bvh, memo, node_left_i, i_min );
       let c2 = collapse_with( dst, bvh, memo, node_right_i, t - i_min );
@@ -200,13 +184,12 @@ fn collapse_with( dst : &mut Vec< BVHNode4 >, bvh : &Vec< BVHNode >, memo : &Vec
   }
 }
 
-// Find the optimal number (that is no more than `cutsize`) of children `node_i` should have.
-// WARNING: Should only be called once `memo` is fully constructed
+/// Finds the optimal number (that is no more than `cutsize`) of children `node_i` should have.
+/// WARNING: Should only be called once `memo` is fully constructed
 fn find_t( bvh : &Vec< BVHNode >, memo : &Vec< Option< Vec< f32 > > >, node_i : usize, cutsize : usize ) -> usize {
   if bvh[ node_i ].is_leaf( ) {
     1
   } else if let Some( m ) = &memo[ node_i ] {
-    // First find the value of `t`
     let mut t_min     = 1;
     let mut t_min_val = m[ 1 - 1 ];
     for t in 2..(cutsize+1) {
@@ -221,8 +204,27 @@ fn find_t( bvh : &Vec< BVHNode >, memo : &Vec< Option< Vec< f32 > > >, node_i : 
   }
 }
 
-// Returns the minimal cost of `node_i`, where the maximum number of children is at most `cutsize`.
-// WARNING: Should only be called once `memo` is fully constructed
+/// Finds the optimal number of nodes `i` that should be obtained by collapsing node `node_left_i`.
+///   When collapsing the right node (`node_right_i`), it should have `t - i` nodes.
+///   So the optimal `i` is lower than `t`.
+fn find_i( bvh : &Vec< BVHNode >, memo : &Vec< Option< Vec< f32 > > >, node_left_i : usize, node_right_i : usize, t : usize ) -> usize {
+  let mut i_min = 1;
+  let mut i_min_val = node_flat_cost( memo, bvh, node_left_i, 1 ) + node_flat_cost( memo, bvh, node_right_i, t - 1 );
+  
+  for i in 2..t {
+    let i_val = node_flat_cost( memo, bvh, node_left_i, i ) + node_flat_cost( memo, bvh, node_right_i, t - i );
+
+    if i_val < i_min_val {
+      i_min = i;
+      i_min_val = i_val;
+    }
+  }
+
+  i_min
+}
+
+/// Returns the minimal cost of `node_i`, where the maximum number of children is at most `cutsize`.
+/// WARNING: Should only be called once `memo` is fully constructed
 fn node_flat_cost( memo : &Vec< Option< Vec< f32 > > >, bvh : &Vec< BVHNode >, node_i : usize, cutsize : usize ) -> f32 {
   if bvh[ node_i ].is_leaf( ) {
     1.0
@@ -237,8 +239,8 @@ fn node_flat_cost( memo : &Vec< Option< Vec< f32 > > >, bvh : &Vec< BVHNode >, n
   }
 }
 
-// Applies memoisation to find the optimal tree-cut for `node_i`. This minimises the traversal cost in the tree.
-// That is, the tree is made as shallow as possible.
+/// Applies memoisation to find the optimal tree-cut for `node_i`. This minimises the traversal cost in the tree.
+/// That is, the tree is made as shallow as possible.
 fn r_cost( memo : &mut Vec< Option< Vec< f32 > > >, bvh : &Vec< BVHNode >, node_i : usize, cutsize : usize ) -> f32 {
   let t_cost = 1.0; // Cost to perform an AABB intersection
   let max_childs = 4;
@@ -278,9 +280,9 @@ fn r_cost( memo : &mut Vec< Option< Vec< f32 > > >, bvh : &Vec< BVHNode >, node_
   }
 }
 
-// Returns the current traversal cost of the full BVH-2
+/// Returns the current traversal cost of the full BVH-2 rooted in `node_i`
 fn current_cost( bvh : &Vec< BVHNode >, node_i : usize ) -> f32 {
-  if bvh[ node_i ].is_leaf( ) { // leaf
+  if bvh[ node_i ].is_leaf( ) {
     1.0
   } else {
     let node_left_i  = bvh[ node_i ].left_first as usize;
@@ -294,7 +296,7 @@ fn current_cost( bvh : &Vec< BVHNode >, node_i : usize ) -> f32 {
   }
 }
 
-// Verifies correctness of the obtained 4-way BVH (See `BVHNode::verify(..)`)
+/// Verifies correctness of the obtained 4-way BVH (See `BVHNode::verify(..)`)
 fn verify_bvh( shapes : &[Rc< dyn Tracable >], num_infinite : usize, bvh : &Vec< BVHNode4 > ) -> bool {
   let self_bounds = bvh[ 0 ].child_bounds.extract_hull( bvh[ 0 ].num_children as usize );
 
@@ -310,7 +312,7 @@ fn verify_bvh( shapes : &[Rc< dyn Tracable >], num_infinite : usize, bvh : &Vec<
   a && has_all
 }
 
-// Sets `true` in `contained` for each shape that is in the BVH rooted in `i`.
+/// Sets `true` in `contained` for each shape that is in the BVH rooted in `i`.
 fn verify_bvh_contains( contained : &mut [bool], bvh : &Vec< BVHNode4 >, i : i32 ) {
   if i >= 0 { // node
     for j in 0..bvh[ i as usize ].num_children {
@@ -326,8 +328,8 @@ fn verify_bvh_contains( contained : &mut [bool], bvh : &Vec< BVHNode4 >, i : i32
   }
 }
 
-// Returns `Some(..)` if the bounds for `node_i` contain the bounds of its children;
-//   and this is recursively true of their children.
+/// Returns `Some(..)` if the bounds for `node_i` contain the bounds of its children;
+///   and this is recursively true for their children.
 fn verify_bvh_bounds( shapes : &[Rc< dyn Tracable >], num_infinite : usize, bvh : &Vec< BVHNode4 >, bounds : AABB, i : i32 ) -> Option< AABB > {
   if i >= 0 {
     // WARNING: Only works with non-empty inner nodes

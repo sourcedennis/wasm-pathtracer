@@ -17,6 +17,8 @@ pub struct AABB {
   pub z_max : f32
 }
 
+/// A set of 4 AABBs, optimised for SIMD operations when intersecting a ray with
+/// all four AABBs at once
 #[derive(Copy,Clone,Debug)]
 pub struct AABBx4 {
   pub x_min : f32x4,
@@ -28,6 +30,7 @@ pub struct AABBx4 {
 }
 
 impl AABB {
+  /// A placeholder AABB. Used for initialising arrays.
   pub const EMPTY: AABB =
     AABB {
       x_min: 0.0
@@ -38,10 +41,7 @@ impl AABB {
     , z_max: 0.0
     };
 
-  // pub fn new( x : f32, y : f32, z : f32, x_size : f32, y_size : f32, z_size : f32 ) -> AABB {
-  //   AABB { x, y, z, x_size, y_size, z_size }
-  // }
-
+  /// Constructs a new AABB with the provided minimum and maximum corners
   pub fn new1( x_min : f32, y_min : f32, z_min : f32
              , x_max : f32, y_max : f32, z_max : f32
              ) -> AABB {
@@ -56,6 +56,7 @@ impl AABB {
   //   x_size * y_size * z_size
   // }
 
+  /// Returns the surface of the AABB
   pub fn surface( &self ) -> f32 {
     let x_size = self.x_max - self.x_min;
     let y_size = self.y_max - self.y_min;
@@ -64,6 +65,7 @@ impl AABB {
     2.0 * ( x_size * y_size + x_size * z_size + y_size * z_size )
   }
 
+  /// Returns the center point of the AABB
   pub fn center( &self ) -> Vec3 {
     Vec3::new(
       0.5 * ( self.x_min + self.x_max )
@@ -72,6 +74,7 @@ impl AABB {
     )
   }
 
+  /// Returns the smallest AABB containing both `self` and `o`.
   pub fn join( &self, o : &AABB ) -> AABB {
     let x_min = self.x_min.min( o.x_min );
     let y_min = self.y_min.min( o.y_min );
@@ -84,6 +87,7 @@ impl AABB {
     AABB::new1( x_min, y_min, z_min, x_max, y_max, z_max )
   }
 
+  /// Joins only if `o` is set; otherwise returns `self`.
   pub fn join_maybe( &self, o : &Option< AABB > ) -> AABB {
     if let Some( a ) = o {
       self.join( a )
@@ -92,6 +96,8 @@ impl AABB {
     }
   }
 
+  /// True if `o` is a subset of `self`. That is, any point that is in `o` is
+  /// also in `self`.
   pub fn contains( &self, o : &AABB ) -> bool {
     o.x_min >= self.x_min
       && o.y_min >= self.y_min
@@ -101,10 +107,11 @@ impl AABB {
       && o.z_max <= self.z_max
   }
 
+  /// Intersects the ray with the box. If it intersects, the minimum positive
+  /// distance is returned. If it intersects "before the camera", `None` is
+  /// returned. If the ray originates inside the box, then `Some(0.0)` is
+  /// returned.
   pub fn hit( &self, ray : &Ray ) -> Option< f32 > {
-    // let invdx = 1.0 / ray.dir.x;
-    // let invdy = 1.0 / ray.dir.y;
-    // let invdz = 1.0 / ray.dir.z;
     let invdx = ray.inv_dir.x;
     let invdy = ray.inv_dir.y;
     let invdz = ray.inv_dir.z;
@@ -138,10 +145,12 @@ impl AABB {
     }
   }
 
+  /// Returns the furthest hit distance of the ray with the AABB.
+  /// (As opposed to the closest distance by `AABB::hit(..)`)
   pub fn hit_furthest( &self, ray : &Ray ) -> Option< f32 > {
-    let invdx = 1.0 / ray.dir.x;
-    let invdy = 1.0 / ray.dir.y;
-    let invdz = 1.0 / ray.dir.z;
+    let invdx = ray.inv_dir.x;
+    let invdy = ray.inv_dir.y;
+    let invdz = ray.inv_dir.z;
 
     // "Clip" the line within the box, along each axis
     let tx1 = ( self.x_min - ray.origin.x ) * invdx;
@@ -172,16 +181,20 @@ impl AABB {
 }
 
 impl AABBx4 {
+  /// Returns a placeholder AABB. Mainly used as an initialisation element for
+  ///   arrays
   pub fn empty( ) -> AABBx4 {
     AABBx4::new( AABB::EMPTY, AABB::EMPTY, AABB::EMPTY, AABB::EMPTY )
   }
 
+  /// Extracts the AABB at location `i` in the SIMD structure
   pub fn extract( &self, i : usize ) -> AABB {
     AABB::new1( self.x_min.extract( i ), self.y_min.extract( i ), self.z_min.extract( i )
               , self.x_max.extract( i ), self.y_max.extract( i ), self.z_max.extract( i )
               )
   }
 
+  /// Returns the AABB around the first `n` AABBs in this structure
   pub fn extract_hull( &self, n : usize ) -> AABB {
     // assert( n > 0 )
     let mut hull = self.extract( 0 );
@@ -191,6 +204,7 @@ impl AABBx4 {
     hull
   }
 
+  /// Constructs a new SIMD AABB with the 4 provided AABB
   pub fn new( a : AABB, b : AABB, c : AABB, d : AABB ) -> AABBx4 {
     let x_min = f32x4::new( a.x_min, b.x_min, c.x_min, d.x_min );
     let y_min = f32x4::new( a.y_min, b.y_min, c.y_min, d.y_min );
@@ -202,13 +216,16 @@ impl AABBx4 {
     AABBx4 { x_min, y_min, z_min, x_max, y_max, z_max }
   }
 
+  /// Intersects the ray with all 4 AABBs.
+  /// For any AABB that is not hit, or is hit negatively ("before the camera"),
+  /// `NEG_INF` is returned. 0 is returned for an AABB containing the ray origin.
   pub fn hit( &self, ray : &Ray ) -> f32x4 {
     let z_x4 = f32x4::splat( 0.0 );
     let ninf_x4 = f32x4::splat( -INFINITY );
 
-    let invdx = 1.0 / ray.dir.x;
-    let invdy = 1.0 / ray.dir.y;
-    let invdz = 1.0 / ray.dir.z;
+    let invdx = ray.inv_dir.x;
+    let invdy = ray.inv_dir.y;
+    let invdz = ray.inv_dir.z;
 
     // "Clip" the line within the box, along each axis
     let tx1 = ( self.x_min - ray.origin.x ) * invdx;
