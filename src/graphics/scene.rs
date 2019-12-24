@@ -275,7 +275,7 @@ fn traverse_bvh4_guarded< 'a >(
     , num_inf : usize
     , bvh     : &[BVHNode4]
     , shapes  : &'a [Rc< dyn Tracable >]
-    , node_i  : usize
+    , node_i  : i32
     , max_dis : f32 ) -> (usize, Option< (f32, &'a Rc< dyn Tracable >) >) {
 
   traverse_bvh4( ray, num_inf, bvh, shapes, node_i, max_dis )
@@ -289,34 +289,33 @@ fn traverse_bvh4< 'a >(
     , num_inf     : usize
     , bvh         : &[BVHNode4]
     , shapes      : &'a [Rc< dyn Tracable >]
-    , node_i      : usize
+    , node_i      : i32
     , mut max_dis : f32 ) -> (usize, Option< (f32, &'a Rc< dyn Tracable >) >) {
   
-  let node = bvh[ node_i ];
 
-  if node.is_leaf( ) { // leaf
-    let offset = node.left_first as usize;
-    let size = node.num_shapes( ) as usize;
+  if node_i < 0 { // leaf
+    let ni = unsafe { std::mem::transmute::< i32, u32 >( node_i ) };
+    let num_shapes = ( ( ni >> 27 ) & 0x3 ) as usize;
+    let shape_index = ( ni & 0x7FFFFFF ) as usize;
 
-    (1, trace_shapes_md( ray, &shapes[(num_inf+offset)..(num_inf+offset+size)], max_dis ))
+    // (1, trace_shapes_md( ray, &shapes[(num_inf+offset)..(num_inf+offset+size)], max_dis ))
+    (1, trace_shapes_md( ray, &shapes[(num_inf+shape_index)..(num_inf+shape_index+num_shapes)], max_dis ))
   } else { // node
-    let num_children  = bvh[ node_i ].num_children( );
-    let left_i        = bvh[ node_i ].left_first as usize;
-
+    let node = &bvh[ node_i as usize ];
+    let num_children  = node.num_children as usize;
 
     // ( num_traversed, res )
-    let hits = bvh[ node_i ].bounds.hit( ray );
+    let hits = node.child_bounds.hit( ray );
     
     let mut children = [ (0, INFINITY), (0, INFINITY), (0, INFINITY), (0, INFINITY) ];
 
     for i in 0..num_children {
-      let id = left_i + i;
-      children[ i ] = ( id, hits.extract( i ) );
+      children[ i ] = ( node.children[ i ], hits.extract( i ) );
     }
 
     sort_small( &mut children, num_children );
 
-    let (mut num_traversed, mut res) = ( num_children, None );
+    let (mut num_traversed, mut res) = ( 1, None );
 
     for i in 0..num_children {
       if children[ i ].1 > max_dis {
@@ -336,7 +335,7 @@ fn traverse_bvh4< 'a >(
   }
 }
 
-fn sort_small( a : &mut [(usize, f32)], n : usize ) {
+fn sort_small( a : &mut [(i32, f32)], n : usize ) {
   if n == 2 {
     if a[ 1 ].1 < a[ 0 ].1 {
       a.swap( 0, 1 );

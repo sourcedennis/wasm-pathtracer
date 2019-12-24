@@ -46,8 +46,11 @@ fn main( ) {
   println!( "Time: {}", now.elapsed( ).as_millis( ) );
   println!( "Verified: {:?}", BVHNode::verify( &triangles, numinf, &bvh ) );
   println!( "BVH depth: {}", BVHNode::depth( &bvh ) );
+  println!( "Memory: {:?}", bvh.len( ) * size_of::<BVHNode>( ) );
 
   let bvh4 = BVHNode4::collapse( &bvh );
+  //println!( "{:?}", bvh4 );
   println!( "Collapsed. Count={}, Depth={}", BVHNode4::node_count( &bvh4 ), BVHNode4::depth( &bvh4 ) );
   println!( "Verified: {:?}", BVHNode4::verify( &triangles, numinf, &bvh4 ) );
+  println!( "Memory: {:?}", bvh4.len( ) * size_of::<BVHNode4>( ) );
 }
