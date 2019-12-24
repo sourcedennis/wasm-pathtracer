@@ -198,8 +198,8 @@ impl AABBx4 {
   }
 
   pub fn hit( &self, ray : &Ray ) -> f32x4 {
-    let mut z_x4 = f32x4::splat( 0.0 );
-    let mut ninf_x4 = f32x4::splat( -INFINITY );
+    let z_x4 = f32x4::splat( 0.0 );
+    let ninf_x4 = f32x4::splat( -INFINITY );
 
     let invdx = 1.0 / ray.dir.x;
     let invdy = 1.0 / ray.dir.y;
@@ -223,19 +223,24 @@ impl AABBx4 {
     let tmin = txmin.max(tymin).max(tzmin);
     let tmax = txmax.min(tymax).min(tzmax);
 
-    let no_intersect = tmin.gt( tmax );
+    let gt = tmin.gt( tmax );
+    let no_intersect = gt.select( gt, tmax.lt( z_x4 ) );
     let outside = tmin.ge( z_x4 );
-    let inside = tmax.ge( z_x4 );
 
     no_intersect.select(
       ninf_x4,
       outside.select(
         tmin,
-        inside.select(
-          z_x4,
-          ninf_x4
-        )
+        z_x4
       )
     )
+    
+    // if tmin > tmax || tmax < 0.0 { // Does not intersect, or bind
+    //   -INF
+    // } else if tmin >= 0.0 { // Outside the box
+    //   tmin
+    // } else { // Inside the box
+    //   0.0
+    // }
   }
 }
