@@ -102,9 +102,12 @@ impl AABB {
   }
 
   pub fn hit( &self, ray : &Ray ) -> Option< f32 > {
-    let invdx = 1.0 / ray.dir.x;
-    let invdy = 1.0 / ray.dir.y;
-    let invdz = 1.0 / ray.dir.z;
+    // let invdx = 1.0 / ray.dir.x;
+    // let invdy = 1.0 / ray.dir.y;
+    // let invdz = 1.0 / ray.dir.z;
+    let invdx = ray.inv_dir.x;
+    let invdy = ray.inv_dir.y;
+    let invdz = ray.inv_dir.z;
 
     // "Clip" the line within the box, along each axis
     let tx1 = ( self.x_min - ray.origin.x ) * invdx;

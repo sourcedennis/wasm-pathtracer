@@ -209,8 +209,7 @@ pub fn ray_store_done( ) {
           let pixel = Vec3::new( fx, fy, 0.8 );
           let dir   = pixel.normalize( ).rot_x( conf.camera.rot_x ).rot_y( conf.camera.rot_y );
 
-          conf.rays[ i ].origin = origin;
-          conf.rays[ i ].dir = dir;
+          conf.rays[ i ] = Ray::new( origin, dir );
         }
       }
     } else {
