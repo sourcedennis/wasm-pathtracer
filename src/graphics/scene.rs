@@ -5,6 +5,7 @@ use crate::math::{Vec3, EPSILON};
 use crate::graphics::{BVHNode, BVHNode4};
 use std::f32::INFINITY;
 use std::rc::Rc;
+use std::cmp::Ordering::Equal;
 
 enum BVHEnum {
   BVH2( usize, Vec< BVHNode > ),
@@ -311,32 +312,25 @@ fn traverse_bvh4< 'a >(
 
     (1, trace_shapes_md( ray, &shapes[(num_inf+offset)..(num_inf+offset+size)], max_dis ))
   } else { // node
-    let mut num_children  = bvh[ node_i ].num_children( );
-    let mut left_i        = bvh[ node_i ].left_first as usize;
-    
-    let mut child_ids       = [ 0, 0, 0, 0 ];
-    let mut child_distances = [INFINITY, INFINITY, INFINITY, INFINITY];
+    let num_children  = bvh[ node_i ].num_children( );
+    let left_i        = bvh[ node_i ].left_first as usize;
+
+    let mut children = [ (0, INFINITY), (0, INFINITY), (0, INFINITY), (0, INFINITY) ];
 
     for i in 0..num_children {
-      child_ids[ i ] = left_i + i;
-      child_distances[ i ] = aabb_distance_inf( ray, &bvh[ child_ids[ i ] ].bounds );
+      let id = left_i + i;
+      children[ i ] = ( id, aabb_distance_inf( ray, &bvh[ id ].bounds ) );
     }
+
+    sort_small( &mut children, num_children );
 
     let (mut num_traversed, mut res) = ( num_children, None );
 
-    while num_children > 0 {
-      let mut i = 0;
-
-      for j in 0..num_children {
-        if child_distances[ j ] < child_distances[ i ] {
-          i = j;
-        }
-      }
-
-      if child_distances[ i ] > max_dis {
+    for i in 0..num_children {
+      if children[ i ].1 > max_dis {
         return ( num_traversed, res );
-      } else if child_distances[ i ] >= 0.0 {
-        let ( nt2, res2 ) = traverse_bvh4( ray, num_inf, bvh, shapes, child_ids[ i ], max_dis );
+      } else if children[ i ].1 >= 0.0 {
+        let ( nt2, res2 ) = traverse_bvh4( ray, num_inf, bvh, shapes, children[ i ].0, max_dis );
   
         if let Some( ( d, _ ) ) = res2 {
           max_dis = d;
@@ -344,13 +338,53 @@ fn traverse_bvh4< 'a >(
         }
         num_traversed += nt2;
       }
-
-      num_children -= 1;
-      child_ids[ i ] = child_ids[ num_children ];
-      child_distances[ i ] = child_distances[ num_children ];
     }
 
     ( num_traversed, res )
+  }
+}
+
+fn sort_small( a : &mut [(usize, f32)], n : usize ) {
+  if n == 2 {
+    if a[ 1 ].1 < a[ 0 ].1 {
+      a.swap( 0, 1 );
+    }
+  } else if n == 3 {
+    if a[ 1 ].1 < a[ 0 ].1 {
+      a.swap( 0, 1 );
+    }
+    if a[ 2 ].1 < a[ 1 ].1 {
+      a.swap( 1, 2 );
+    }
+    if a[ 1 ].1 < a[ 0 ].1 {
+      a.swap( 0, 1 );
+    }
+  } else if n == 4 {
+    if a[ 1 ].1 < a[ 0 ].1 {
+      a.swap( 0, 1 );
+    }
+    if a[ 3 ].1 < a[ 2 ].1 {
+      a.swap( 2, 3 );
+    }
+    if a[ 0 ].1 < a[ 2 ].1 {
+      if a[ 2 ].1 < a[ 1 ].1 {
+        a.swap( 1, 2 );
+
+        if a[ 3 ].1 < a[ 2 ].1 {
+          a.swap( 2, 3 );
+        }
+      }
+    } else {
+      a.swap( 0, 2 );
+      a.swap( 1, 2 );
+      
+      if a[ 3 ].1 < a[ 1 ].1 {
+        a.swap( 1, 3 );
+        a.swap( 2, 3 );
+      } else if a[ 3 ].1 < a[ 2 ].1 {
+        a.swap( 2, 3 );
+      }
+    }
   }
 }
 
