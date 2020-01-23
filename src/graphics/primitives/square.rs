@@ -44,6 +44,10 @@ impl Bounded for Square {
 }
 
 impl Tracable for Square {
+  fn is_emissive( &self ) -> bool {
+    self.mat.is_emissive( )
+  }
+  
   fn trace( &self, ray: &Ray ) -> Option< Hit > {
     let n_dot_dir = ray.dir.y;
 

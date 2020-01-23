@@ -49,6 +49,10 @@ impl Bounded for Torus {
 }
 
 impl Tracable for Torus {
+  fn is_emissive( &self ) -> bool {
+    self.mat.is_emissive( )
+  }
+  
   fn trace( &self, ray: &Ray ) -> Option< Hit > {
     // The torus formula is defined as (where A=big_r and B=small_r):
     // (x^2 + y^2 + z^2 + A^2 - B^2) = 4A^2 * (x^2 + y^2)

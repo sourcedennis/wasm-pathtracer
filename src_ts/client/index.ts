@@ -2,20 +2,16 @@ import { Observable, XObservable }     from '@s/event/observable';
 import { Vec3 }                        from '@s/math/vec3';
 import { Camera }                      from '@s/graphics/camera';
 import { Triangles }                   from '@s/graphics/triangles';
-import { CHECKER_RED_YELLOW, Texture }          from '@s/graphics/texture';
+import { CHECKER_RED_YELLOW, Texture } from '@s/graphics/texture';
 import { Runner }                      from './control/runner';
 import { RenderTarget, CanvasElement } from './control/render_target';
 import { FpsTracker }                  from './control/fps_tracker';
 import { CameraController }            from './input/camera_controller';
-import { Raytracer }                   from './raytracer';
-import { SinglecoreRaytracer }         from './raytracer/singlecore';
-import { MulticoreRaytracer }          from './raytracer/multicore';
+import { BackgroundPathTracer }        from './background_pathtracer';
 import { Elm as ElmScene }             from './PanelScenes.elm';
 import { Elm as ElmSettings }          from './PanelSettings.elm';
 import { parseObj }                    from './obj_parser';
 import { MeshId }                      from './meshes';
-import { Msg } from '@s/worker_messages';
-import { EmptyPromise } from '@s/event/promise';
 
 // A configuration for the raytracer
 // It is modified by UI options
@@ -26,12 +22,8 @@ class Config {
   public height           : number;
   // True if it is currently running
   public isRunning        : boolean;
-  // True if it is running using 8 WebWorkers. On the main thread otherwise
-  public isMulticore      : boolean;
-  // The maximum number of ray bounces
-  public rayDepth         : number;
   // 0=color, 1=depth, 2=bvh
-  public renderType       : number;
+  // public renderType       : number;
   // An unique id for hard-coded scenes. (Defined in the Rust part)
   public sceneId          : number;
 
@@ -41,10 +33,7 @@ class Config {
   public constructor( ) {
     this.width            = 512;
     this.height           = 512;
-    this.isRunning        = true;
-    this.isMulticore      = true;
-    this.rayDepth         = 1;
-    this.renderType       = 0; // 0=color, 1=depth, 2=bvh
+    // this.renderType       = 0; // 0=color, 1=depth, 2=bvh
     this.sceneId          = 0;
     this.bvhState         = 0;
   }
@@ -64,27 +53,15 @@ class Global {
   private          _target           : RenderTarget;
   // The manager of the on-screen render target
   private readonly _canvasElem       : CanvasElement;
-  // The actual raytracer (either singlecore or multicore)
-  private          _raytracer        : Raytracer;
-  // This keeps track of the FPS of the active raytracer
-  private readonly _fpsTracker       : FpsTracker;
-  // This continuously calls the raytrace function
-  private          _runner           : Runner | undefined;
-  // All the meshes that were loaded (as polygon soup)
+  // The actual path tracer (runs in a background WebWorker)
+  private          _tracer           : BackgroundPathTracer;
+  // All the meshes that were loaded (as polygon soups)
   private          _meshes           : Map< number, Triangles >;
   // All the textures that were loaded
   private          _textures         : Map< number, Texture >;
 
   // The on-screen canvas
   private readonly _canvas       : HTMLCanvasElement;
-  // Gets called whenever a frame is rendered. The tuple are frame-render-time
-  //   statistics from the last second of the form: [avg, min, max]
-  private readonly _onRenderDone : XObservable< [number,number,number] >;
-
-  private readonly _onBvhHits    : XObservable< number >;
-
-  // Produces a tuple with the build time and node count
-  private readonly _onBvhDone    : XObservable< [number, number] | undefined >;
 
   // Constructs a new managing environment for the provided on-screen canvas
   public constructor( canvas : HTMLCanvasElement, mod : WebAssembly.Module ) {
@@ -96,14 +73,9 @@ class Global {
 
     this._target       = new RenderTarget( this._config.width, this._config.height );
     this._canvasElem   = new CanvasElement( canvas, this._target );
-    this._fpsTracker   = new FpsTracker( );
-    this._onRenderDone = new XObservable( );
-    this._onBvhHits    = new XObservable( );
-    this._onBvhDone    = new XObservable( );
     this._meshes       = new Map( );
     this._textures     = new Map( );
-    this._raytracer    = this._setupRaytracer( );
-    this._runner       = new Runner( ( ) => this._render( ) ); // It's not running yet
+    this._tracer       = this._setupRaytracer( );
 
     // Initially center the target in the canvas. Make sure the canvas
     // properly remains within the screen upon size
@@ -112,90 +84,55 @@ class Global {
     window.addEventListener( 'resize', ev => this._onResize( ) );
 
     this._cameraController.onUpdate( ).subscribe( c => {
-      this._raytracer.updateCamera( c );
+      this._tracer.updateCamera( c );
     } );
   }
 
   // Renders a depth-buffer if true. A diffuse-buffer otherwise
-  public setRenderType( t : number ) {
-    this._config.renderType = t;
-    this._raytracer.updateParams( this._config.renderType, this._config.rayDepth );
-    this._fpsTracker.clear( );
-  }
-
-  // Sets the BVH mode
-  // 0=disabled. 1=bvh2. 2=bvh4
-  public setBvhState( s : number ): void {
-    this._config.bvhState = s;
-    if ( s != 0 ) {
-      this._rebuildBvh( );
-    } else {
-      this._raytracer.disableBVH( );
-      this._onBvhDone.next( undefined );
-    }
-  }
+  // public setRenderType( t : number ) {
+  //   this._config.renderType = t;
+  // }
 
   // Updates the maximum ray-depth of the renderer
-  public setReflectionDepth( d : number ) {
-    this._config.rayDepth = d;
-    this._raytracer.updateParams( this._config.renderType, this._config.rayDepth );
-    this._fpsTracker.clear( );
-  }
+  // public setReflectionDepth( d : number ) {
+  //   this._config.rayDepth = d;
+  //   this._raytracer.updateParams( this._config.renderType, this._config.rayDepth );
+  //   this._fpsTracker.clear( );
+  // }
 
   // Starts or stops continuous raytracing
   // When running, it will render the next frame immediately after the previous
   // one is done.
   public updateRunning( r : boolean ) {
     this._config.isRunning = r;
-    if ( !this._config.isRunning ) {
-      if ( this._runner ) {
-        this._runner.terminate( );
-      }
-    } else {
-      this._fpsTracker.clear( );
-      this._runner = new Runner( ( ) => this._render( ) );
-    }
-  }
-
-  // If true, a multicore renderer (on 8 WebWorkers) is used
-  // Otherwise, a singlecore renderer on the main thread is used
-  public updateMulticore( isMulticore : boolean ) {
-    this._config.isMulticore = isMulticore;
-    this._raytracer.destroy( );
     if ( this._config.isRunning ) {
-      this._fpsTracker.clear( );
+      this._tracer.resume( );
+    } else {
+      this._tracer.pause( );
     }
-    this._raytracer = this._setupRaytracer( );
-    this._rebuildBvh( );
   }
 
-  // Updates the scene that is currently rendered
+  // Selects another scene to be rendered
   // The `sid` refers to the id of the hard-coded scene in the raytracer source.
   public updateScene( sid : number ) {
     console.log( 'update scene', sid );
     this._config.sceneId = sid;
-    this._raytracer.updateScene( sid );
+    this._tracer.updateScene( sid );
 
     this._cameraController.set( sceneCamera( sid ) );
-    this._raytracer.updateCamera( this._cameraController.get( ) );
-
-    this._rebuildBvh( );
+    this._tracer.updateCamera( this._cameraController.get( ) );
   }
 
   // Updates the size of the viewport of the renderer
   public updateViewport( width : number, height : number ) {
-    this._config.width = width;
+    this._config.width  = width;
     this._config.height = height;
-    this._target       = new RenderTarget( this._config.width, this._config.height );
+    this._target        = new RenderTarget( this._config.width, this._config.height );
     this._canvasElem.updateTarget( this._target );
 
     // Restart the raytracer
-    this._raytracer.destroy( );
-    if ( this._config.isRunning ) {
-      this._fpsTracker.clear( );
-    }
-    this._raytracer = this._setupRaytracer( );
-    this._rebuildBvh( );
+    this._tracer.destroy( );
+    this._tracer = this._setupRaytracer( );
   }
 
   // Meshes can only be loaded by JavaScript, yet they need to be passed
@@ -204,28 +141,13 @@ class Global {
   // Note that meshes are "hardcoded" to be part of scenes (by their id)
   public storeMesh( id : number, mesh : Triangles ): void {
     this._meshes.set( id, mesh );
-    this._raytracer.storeMesh( id, mesh );
+    this._tracer.storeMesh( id, mesh );
   }
 
   // Stores a texture in the WASM module
   public storeTexture( id : number, texture : Texture ): void {
     this._textures.set( id, texture );
-    this._raytracer.storeTexture( id, texture );
-  }
-
-  // Gets notified when a frame is done rendering
-  public onRenderDone( ): Observable< [ number, number, number ] > {
-    return this._onRenderDone.observable;
-  }
-
-  // Produces a tuple with build time and node count
-  public onBvhDone( ): Observable< [number, number] | undefined > {
-    return this._onBvhDone.observable;
-  }
-
-  // Produces the number of BVH hits whenever a frame is done rendering
-  public onBvhHits( ): Observable< number > {
-    return this._onBvhHits.observable;
+    this._tracer.storeTexture( id, texture );
   }
 
   // Gets notified when the camera updates
@@ -240,43 +162,17 @@ class Global {
     this._cameraController.set( this._cameraController.get( ) );
   }
 
-  // If the BVH is enabled, it is rebuilt
-  private _rebuildBvh( ): void {
-    if ( this._config.bvhState != 0 ) {
-      this._raytracer.rebuildBVH( 32, this._config.bvhState == 2 ).then( ( [time, numNodes] ) => {
-        this._onBvhDone.next( [time, numNodes] );
-      } );
-    }
-  }
-
   // Constructs a new raytracer with the current configuration
-  private _setupRaytracer( ): Raytracer {
+  private _setupRaytracer( ): BackgroundPathTracer {
     const c = this._config;
 
-    let tracer : Raytracer;
-
-    if ( c.isMulticore ) {
-      tracer = new MulticoreRaytracer(
-          c.width,
-          c.height,
-          c.sceneId,
-          this._mod,
-          c.renderType,
-          c.rayDepth,
-          this._cameraController.get( ),
-          8
-        );
-    } else {
-      tracer = new SinglecoreRaytracer(
-          c.width,
-          c.height,
-          c.sceneId,
-          this._mod,
-          c.renderType,
-          c.rayDepth,
-          this._cameraController.get( )
-        );
-    }
+    let tracer = new BackgroundPathTracer(
+        c.width
+      , c.height
+      , c.sceneId
+      , this._mod
+      , this._cameraController.get( )
+      );
 
     for ( let [id, mesh] of this._meshes ) {
       tracer.storeMesh( id, mesh );
@@ -293,24 +189,6 @@ class Global {
     canvas.height = document.body.clientHeight;
     canvas.width  = document.body.clientWidth - 2 * ( 250 / (3 / 4) );
     this._canvasElem.reclamp( );
-  }
-
-  // Renders a single frame asynchronously.
-  // Upon completion a UInt8 RGBA pixel buffer is provided to the promise.
-  private _render( ): Promise< void > {
-    let startTime = Date.now( );
-    return this._raytracer.render( ).then( ( [ numHits, res ] ) => {
-      this._onBvhHits.next( numHits );
-
-      this._target.update( res );
-      let currTime = Date.now( );
-      this._fpsTracker.add( currTime, currTime - startTime );
-      this._onRenderDone.next(
-        [ this._fpsTracker.avg( )
-        , this._fpsTracker.low( )
-        , this._fpsTracker.high( )
-        ] );
-    } );
   }
 }
 
@@ -367,30 +245,10 @@ document.addEventListener( 'DOMContentLoaded', ev => {
 
       let settingsPanel = document.getElementById( 'settingspanel' );
       const appSettings = ElmSettings.PanelSettings.init( { node: settingsPanel } );
-      appSettings.ports.updateRenderType.subscribe( t => env.setRenderType( t ) );
-      appSettings.ports.updateReflectionDepth.subscribe( d => env.setReflectionDepth( d ) );
       appSettings.ports.updateRunning.subscribe( r => env.updateRunning( r ) );
-      appSettings.ports.updateMulticore.subscribe( r => env.updateMulticore( r ) );
       appSettings.ports.updateViewport.subscribe( vp => env.updateViewport( vp[ 0 ], vp[ 1 ] ) );
-      appSettings.ports.updateBVHState.subscribe( b => env.setBvhState( b ) );
 
-      env.onRenderDone( ).subscribe( res => appSettings.ports.updatePerformance.send( res ) );
       env.triggerCameraUpdate( );
-
-      env.onBvhDone( ).subscribe( r => {
-        console.log( 'BVH Done!', r );
-        if ( typeof r !== 'undefined' ) {
-          let [buildTime, nodeCount] = r;
-          console.log( nodeCount );
-          appSettings.ports.updateBVHTime.send( buildTime );
-          appSettings.ports.updateBVHCount.send( nodeCount );
-        }
-      } );
-      env.onBvhHits( ).subscribe( numHits => {
-        appSettings.ports.updateBVHHits.send( numHits );
-      } );
-
-      env.setBvhState( 1 ); // 2-way BVH
 
       fetch( 'bunny.obj' ).then( f => f.text( ) ).then( s => {
         let triangles = parseObj( s );

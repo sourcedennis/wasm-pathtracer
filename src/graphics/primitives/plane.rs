@@ -32,6 +32,10 @@ impl Bounded for Plane {
 }
 
 impl Tracable for Plane {
+  fn is_emissive( &self ) -> bool {
+    self.mat.is_emissive( )
+  }
+  
   // Copied and adjusted from BSc ray-tracer:
   // https://github.com/dennis-school/raytrace_city/blob/master/Code/shapes/plane.cpp
   fn trace( &self, ray: &Ray ) -> Option< Hit > {

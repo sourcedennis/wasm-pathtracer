@@ -16,8 +16,6 @@ wasm-bindgen = "0.2.54"
 roots        = "0.0.4"
 packed_simd  = "0.3.3"
 
-rand         = "0.7.2"
-
 [profile.release]
 lto = true
 

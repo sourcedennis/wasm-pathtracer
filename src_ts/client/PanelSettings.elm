@@ -185,95 +185,95 @@ view m =
   div [ class "sidepanel", id "settingspanel" ]
     [ h2 [] [ text "Settings" ]
     , hr [] []
-    , div []
-        [ span [] [ text "Render type" ]
-        , buttonC (m.renderType == RenderColor) (SelectType RenderColor)
-            [ class "choice", class "left", style "width" "70pt" ]
-            [ text "Color" ]
-        , buttonC (m.renderType == RenderDepth) (SelectType RenderDepth)
-            [ class "choice", class "middle", style "width" "70pt" ]
-            [ text "Depth" ]
-        , buttonC (m.renderType == RenderBvh) (SelectType RenderBvh)
-            [ class "choice", class "right", style "width" "70pt" ]
-            [ text "BVH" ]
-        ]
-    , div []
-        [ span [] [ text "Ray depth" ]
-        , buttonC (m.reflectionDepth == 0) (SelectReflectionDepth 0)
-            [ class "choice", class "top left", style "width" "40pt" ]
-            [ text "0" ]
-        , buttonC (m.reflectionDepth == 1) (SelectReflectionDepth 1)
-            [ class "choice", class "middle", style "width" "40pt" ]
-            [ text "1" ]
-        , buttonC (m.reflectionDepth == 2) (SelectReflectionDepth 2)
-            [ class "choice", class "top right", style "width" "40pt" ]
-            [ text "2" ]
-        , br [] []
-        , buttonC (m.reflectionDepth == 3) (SelectReflectionDepth 3)
-            [ class "choice", class "middle", style "width" "40pt", style "border-left" "none", style "border-top" "1px solid white" ]
-            [ text "3" ]
-        , buttonC (m.reflectionDepth == 4) (SelectReflectionDepth 4)
-            [ class "choice", class "middle", style "width" "40pt", style "border-top" "1px solid white" ]
-            [ text "4" ]
-        , buttonC (m.reflectionDepth == 5) (SelectReflectionDepth 5)
-            [ class "choice", class "middle", style "width" "40pt", style "border-top" "1px solid white" ]
-            [ text "5" ]
-        , br [] []
-        , buttonC (m.reflectionDepth == 6) (SelectReflectionDepth 6)
-            [ class "choice", class "bottom left", style "width" "40pt", style "border-left" "none", style "border-top" "1px solid white" ]
-            [ text "6" ]
-        , buttonC (m.reflectionDepth == 7) (SelectReflectionDepth 7)
-            [ class "choice", class "middle", style "width" "40pt", style "border-top" "1px solid white" ]
-            [ text "7" ]
-        , buttonC (m.reflectionDepth == 8) (SelectReflectionDepth 8)
-            [ class "choice", class "bottom right", style "width" "40pt", style "border-top" "1px solid white" ]
-            [ text "8" ]
-        ]
-    , div []
-        [ span [] [ text "Processor count" ]
-        , buttonC (not m.isMulticore) (SelectMulticore False)
-            [ class "choice", class "left", style "width" "90pt" ]
-            [ text "Single" ]
-        , buttonC m.isMulticore (SelectMulticore True)
-            [ class "choice", class "right", style "width" "90pt" ]
-            [ text "Multi (8)" ]
-        ]
-    , div []
-        ( [ span [] [ text "BVH" ]
-          , buttonC (isBvh2 m.bvh) (SelectBVH False)
-              [ class "choice", class "left", style "width" "70pt", style "padding-left" "27pt" ]
-              [ text "2-way" ]
-          , buttonC (isBvh4 m.bvh) (SelectBVH True)
-              [ class "choice", class "middle", style "width" "70pt", style "padding-left" "27pt" ]
-              [ text "4-way" ]
-          , buttonC (m.bvh == BVHNoModel) DisabledBVH
-              [ class "choice", class "right", style "width" "70pt", style "padding-left" "27pt" ]
-              [ text "Off" ]
-          ]
-          ++
-          case m.bvh of
-            BVHNoModel -> []
-            BVHModel bm ->
-              [ div []
-                  [ span []
-                      [ text "Build time: "
-                      , text (withDefault "- ms" (bm.time |> andThen (\t -> Just (fromInt t ++ " ms")) ))
-                      ]
-                  ]
-              , div []
-                  [ span []
-                      [ text "Node count: "
-                      , text (withDefault "-" (bm.numNodes |> andThen (Just << niceInt)))
-                      ]
-                  ]
-              , div []
-                  [ span []
-                      [ text "Hit count: "
-                      , text (withDefault "-" (bm.numHits |> andThen (Just << niceInt)))
-                      ]
-                  ]
-              ]
-        )
+    -- , div []
+    --     [ span [] [ text "Render type" ]
+    --     , buttonC (m.renderType == RenderColor) (SelectType RenderColor)
+    --         [ class "choice", class "left", style "width" "70pt" ]
+    --         [ text "Color" ]
+    --     , buttonC (m.renderType == RenderDepth) (SelectType RenderDepth)
+    --         [ class "choice", class "middle", style "width" "70pt" ]
+    --         [ text "Depth" ]
+    --     , buttonC (m.renderType == RenderBvh) (SelectType RenderBvh)
+    --         [ class "choice", class "right", style "width" "70pt" ]
+    --         [ text "BVH" ]
+    --     ]
+    -- , div []
+    --     [ span [] [ text "Ray depth" ]
+    --     , buttonC (m.reflectionDepth == 0) (SelectReflectionDepth 0)
+    --         [ class "choice", class "top left", style "width" "40pt" ]
+    --         [ text "0" ]
+    --     , buttonC (m.reflectionDepth == 1) (SelectReflectionDepth 1)
+    --         [ class "choice", class "middle", style "width" "40pt" ]
+    --         [ text "1" ]
+    --     , buttonC (m.reflectionDepth == 2) (SelectReflectionDepth 2)
+    --         [ class "choice", class "top right", style "width" "40pt" ]
+    --         [ text "2" ]
+    --     , br [] []
+    --     , buttonC (m.reflectionDepth == 3) (SelectReflectionDepth 3)
+    --         [ class "choice", class "middle", style "width" "40pt", style "border-left" "none", style "border-top" "1px solid white" ]
+    --         [ text "3" ]
+    --     , buttonC (m.reflectionDepth == 4) (SelectReflectionDepth 4)
+    --         [ class "choice", class "middle", style "width" "40pt", style "border-top" "1px solid white" ]
+    --         [ text "4" ]
+    --     , buttonC (m.reflectionDepth == 5) (SelectReflectionDepth 5)
+    --         [ class "choice", class "middle", style "width" "40pt", style "border-top" "1px solid white" ]
+    --         [ text "5" ]
+    --     , br [] []
+    --     , buttonC (m.reflectionDepth == 6) (SelectReflectionDepth 6)
+    --         [ class "choice", class "bottom left", style "width" "40pt", style "border-left" "none", style "border-top" "1px solid white" ]
+    --         [ text "6" ]
+    --     , buttonC (m.reflectionDepth == 7) (SelectReflectionDepth 7)
+    --         [ class "choice", class "middle", style "width" "40pt", style "border-top" "1px solid white" ]
+    --         [ text "7" ]
+    --     , buttonC (m.reflectionDepth == 8) (SelectReflectionDepth 8)
+    --         [ class "choice", class "bottom right", style "width" "40pt", style "border-top" "1px solid white" ]
+    --         [ text "8" ]
+    --     ]
+    -- , div []
+    --     [ span [] [ text "Processor count" ]
+    --     , buttonC (not m.isMulticore) (SelectMulticore False)
+    --         [ class "choice", class "left", style "width" "90pt" ]
+    --         [ text "Single" ]
+    --     , buttonC m.isMulticore (SelectMulticore True)
+    --         [ class "choice", class "right", style "width" "90pt" ]
+    --         [ text "Multi (8)" ]
+    --     ]
+    -- , div []
+    --     ( [ span [] [ text "BVH" ]
+    --       , buttonC (isBvh2 m.bvh) (SelectBVH False)
+    --           [ class "choice", class "left", style "width" "70pt", style "padding-left" "27pt" ]
+    --           [ text "2-way" ]
+    --       , buttonC (isBvh4 m.bvh) (SelectBVH True)
+    --           [ class "choice", class "middle", style "width" "70pt", style "padding-left" "27pt" ]
+    --           [ text "4-way" ]
+    --       , buttonC (m.bvh == BVHNoModel) DisabledBVH
+    --           [ class "choice", class "right", style "width" "70pt", style "padding-left" "27pt" ]
+    --           [ text "Off" ]
+    --       ]
+    --       ++
+    --       case m.bvh of
+    --         BVHNoModel -> []
+    --         BVHModel bm ->
+    --           [ div []
+    --               [ span []
+    --                   [ text "Build time: "
+    --                   , text (withDefault "- ms" (bm.time |> andThen (\t -> Just (fromInt t ++ " ms")) ))
+    --                   ]
+    --               ]
+    --           , div []
+    --               [ span []
+    --                   [ text "Node count: "
+    --                   , text (withDefault "-" (bm.numNodes |> andThen (Just << niceInt)))
+    --                   ]
+    --               ]
+    --           , div []
+    --               [ span []
+    --                   [ text "Hit count: "
+    --                   , text (withDefault "-" (bm.numHits |> andThen (Just << niceInt)))
+    --                   ]
+    --               ]
+    --           ]
+    --     )
     , div []
         [ span [] [ text "Viewport" ]
         , table []
@@ -296,14 +296,14 @@ view m =
                 ]
             ]
         ]
-    , div []
-        [ span [] [ text "Performance (in last second)" ]
-        , table []
-            [ tr [] [ th [] [ text "Average:" ], td [] [ span [] [ text <| fromInt m.performanceAvg ++ " ms" ] ] ]
-            , tr [] [ th [] [ text "Min:" ], td [] [ span [] [ text <| fromInt m.performanceMin ++ " ms" ] ] ]
-            , tr [] [ th [] [ text "Max:" ], td [] [ span [] [ text <| fromInt m.performanceMax ++ " ms" ] ] ]
-            ]
-        ]
+    -- , div []
+    --     [ span [] [ text "Performance (in last second)" ]
+    --     , table []
+    --         [ tr [] [ th [] [ text "Average:" ], td [] [ span [] [ text <| fromInt m.performanceAvg ++ " ms" ] ] ]
+    --         , tr [] [ th [] [ text "Min:" ], td [] [ span [] [ text <| fromInt m.performanceMin ++ " ms" ] ] ]
+    --         , tr [] [ th [] [ text "Max:" ], td [] [ span [] [ text <| fromInt m.performanceMax ++ " ms" ] ] ]
+    --         ]
+    --     ]
     , if m.isRunning then
         button [ onClick (SelectRunning False) ] [ text "Pause" ]
       else

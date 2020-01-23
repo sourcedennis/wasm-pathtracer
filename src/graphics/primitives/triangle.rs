@@ -3,6 +3,7 @@ use crate::math::{Vec2, Vec3, EPSILON};
 use crate::graphics::Material;
 use crate::graphics::ray::{Ray, Tracable, Bounded, Hit};
 use crate::graphics::AABB;
+use crate::rng::Rng;
 
 /// A triangle in 3-dimensional space
 /// It's normal is inferred from the plane between the vertices
@@ -55,6 +56,37 @@ impl Bounded for Triangle {
 }
 
 impl Tracable for Triangle {
+  fn is_emissive( &self ) -> bool {
+    self.mat.is_emissive( )
+  }
+  
+  fn project_hemisphere( &self, p : &Vec3 ) -> f32 {
+    // Project the triangle on the hemisphere of p
+    let p0 = ( *p - self.v0 ).normalize( );
+    let p1 = ( *p - self.v1 ).normalize( );
+    let p2 = ( *p - self.v2 ).normalize( );
+
+    // Heron's formula
+    // This introduces a bias, but apparently that is acceptable
+    let a = p0.dis( p1 );
+    let b = p1.dis( p2 );
+    let c = p2.dis( p0 );
+
+    let s = ( a + b + c ) * 0.5;
+    ( s * ( s - a ) * ( s - b ) * ( s - c ) ).sqrt( )
+  }
+
+  fn pick_random( &self, rng : &mut Rng, p : &Vec3 ) -> Vec3 {
+    let p0 = ( *p - self.v0 ).normalize( );
+    let p1 = ( *p - self.v1 ).normalize( );
+    let p2 = ( *p - self.v2 ).normalize( );
+
+    let u = rng.next( );
+    let v = rng.next( ) * ( 1.0 - u );
+
+    ( 1.0 - u - v ) * p0 + u * p1 + v * p2
+  }
+  
   fn trace( &self, ray: &Ray ) -> Option< Hit > {
     let v0 = self.v0;
     let v1 = self.v1;

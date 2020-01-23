@@ -37,6 +37,10 @@ impl Bounded for Sphere {
 // If the ray's origin is inside the sphere, the resulting normal
 // also points otherwise. Otherwise the normal points outward.
 impl Tracable for Sphere {
+  fn is_emissive( &self ) -> bool {
+    self.mat.is_emissive( )
+  }
+  
   fn trace( &self, ray : &Ray ) -> Option< Hit > {
     // Copied and adjusted from BSc ray-tracer:
     // https://github.com/dennis-school/raytrace_city/blob/master/Code/shapes/sphere.cpp

@@ -60,6 +60,10 @@ impl Bounded for AARect {
 }
 
 impl Tracable for AARect {
+  fn is_emissive( &self ) -> bool {
+    self.mat.is_emissive( )
+  }
+
   fn trace( &self, ray: &Ray ) -> Option< Hit > {
     let invdx = 1.0 / ray.dir.x;
     let invdy = 1.0 / ray.dir.y;

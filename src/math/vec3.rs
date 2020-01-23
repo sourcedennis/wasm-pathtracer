@@ -51,6 +51,21 @@ impl Vec3 {
     self.dot( self )
   }
 
+  /// Returns the *square* distance to the other point
+  pub fn dis_sq( self, b : Vec3 ) -> f32 {
+    ( self - b ).len_sq( )
+  }
+
+  /// Returns the distance to the other point
+  pub fn dis( self, b : Vec3 ) -> f32 {
+    ( self - b ).len( )
+  }
+
+  /// Performs element-wise multiplication with the other vector
+  pub fn mul_elem( self, other : Vec3 ) -> Vec3 {
+    Vec3::new( self.x * other.x, self.y * other.y, self.z * other.z )
+  }
+
   /// Reflects the vector along the provided normal
   pub fn reflect( self, normal : Vec3 ) -> Vec3 {
     2.0 * self.dot( normal ) * normal - self

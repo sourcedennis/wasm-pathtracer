@@ -15,13 +15,20 @@ enum BVHEnum {
   BVHNone
 }
 
+pub enum LightEnum {
+  /// Point light
+  Point( Light ),
+  /// Area light. Index in the `shapes` array (of `Scene`)
+  Area( usize ) 
+}
+
 // A Scene consists of shapes and lights
 // The camera is *not* part of the scene
 //
 // (For specific scenes, look at the `/scenes.rs` file)
 pub struct Scene {
   pub background : Color3,
-  pub lights     : Vec< Light >,
+  pub lights     : Vec< LightEnum >,
   pub shapes     : Vec< Rc< dyn Tracable > >,
       bvh        : BVHEnum
 }
@@ -32,19 +39,35 @@ pub struct Scene {
 pub struct LightHit {
   // The vector *to* the light source
   pub dir         : Vec3,
-  // The color of the distance-attenuated light source
-  pub color       : Vec3,
-  // Some(..) if attenuation still needs to be applied, with squared distance
-  pub distance_sq : Option< f32 >
+  // The color of the distance-attenuated (if applicable) light source
+  pub color       : Vec3
 }
 
 impl Scene {
   /// Constructs a new scene with the specified lights and shapes
   pub fn new( background : Color3
             , lights     : Vec< Light >
-            , shapes : Vec< Rc< dyn Tracable > >
+            , shapes     : Vec< Rc< dyn Tracable > >
             ) -> Scene {
-    Scene { background, lights, bvh: BVHEnum::BVHNone, shapes }
+    let mut num_area_lights = 0;
+
+    for s in &shapes {
+      num_area_lights += if s.is_emissive( ) { 1 } else { 0 }
+    }
+
+    let light_enums = Vec::with_capacity( lights.len( ) + num_area_lights );
+
+    for l in lights {
+      light_enums.push( LightEnum::Point( l ) );
+    }
+
+    for i in 0..shapes.len( ) {
+      if shapes[ i ].is_emissive( ) {
+        light_enums.push( LightEnum::Area( i ) );
+      }
+    }
+
+    Scene { background, lights: light_enums, bvh: BVHEnum::BVHNone, shapes }
   }
 
   /// Rebuilds the BVH, and returns the number of nodes
@@ -61,6 +84,7 @@ impl Scene {
       num_nodes = BVHNode4::node_count( &bvh4 );
       
       if !BVHNode4::verify( &self.shapes, num_inf, &bvh4) {
+        // This should not happen, but panicing here is better than later
         panic!( "WHAT" );
       }
       
@@ -78,26 +102,29 @@ impl Scene {
     self.bvh = BVHEnum::BVHNone;
   }
 
-  /// Casts a shadow ray from the `hit_loc` to the referenced light.
+  /// Casts a shadow ray from the `hit_loc` to the referenced *point* light.
   /// When the light is non-occluded, it returns a LightHit.
   /// The first element in the tuple is the number of performed BVH node
   ///   traversals.
-  pub fn shadow_ray( &self, hit_loc : &Vec3, light_id : usize ) -> (usize, Option< LightHit >) {
+  /// Note that the hit is already distance attenuated
+  /// Shadow rays to area light sources are computed differently TODO
+  pub fn shadow_ray_point( &self, hit_loc : &Vec3, light_id : usize ) -> (usize, Option< LightHit >) {
     match &self.lights[ light_id ] {
-      Light::Point( ref l ) => {
+      LightEnum::Point( Light::Point( ref l ) ) => {
         let mut to_light : Vec3 = l.location - *hit_loc;
         let distance_sq = to_light.len_sq( );
         to_light = to_light / distance_sq.sqrt( );
 
         let shadow_ray = Ray::new( *hit_loc + EPSILON * to_light, to_light );
         let (d,res) = self.trace_simple( &shadow_ray );
+        // See if there are any objects between the hitpoint and the light source
         if !is_hit_within_sq( res, distance_sq ) {
-          (d, Some( LightHit { dir: to_light, color: l.color, distance_sq: Some( distance_sq ) } ) )
+          (d, Some( LightHit { dir: to_light, color: l.color / distance_sq } ) )
         } else {
           (d, None)
         }
       },
-      Light::Directional( ref l ) => {
+      LightEnum::Point( Light::Directional( ref l ) ) => {
         let to_light   = -l.direction;
         let shadow_ray = Ray::new( *hit_loc + EPSILON * to_light, to_light );
         let (d, res) = self.trace_simple( &shadow_ray );
@@ -107,10 +134,10 @@ impl Scene {
         } else {
           // Note that no attenuation applies here, as the lightsource is at an
           // infinite distance anyway
-          (d, Some( LightHit { dir: to_light, color: l.color.to_vec3( ), distance_sq: None } ))
+          (d, Some( LightHit { dir: to_light, color: l.color.to_vec3( ) } ))
         }
       },
-      Light::Spot( ref l ) => {
+      LightEnum::Point( Light::Spot( ref l ) ) => {
         let mut to_light : Vec3 = l.location - *hit_loc;
         let distance_sq = to_light.len_sq( );
         to_light = to_light / distance_sq.sqrt( );
@@ -122,7 +149,7 @@ impl Scene {
           let shadow_ray = Ray::new( *hit_loc + EPSILON * to_light, to_light );
           let (d, res) = self.trace_simple( &shadow_ray );
           if !is_hit_within_sq( res, distance_sq ) {
-            ( d, Some( LightHit { dir: to_light, color: l.color, distance_sq: Some( distance_sq ) } ) )
+            ( d, Some( LightHit { dir: to_light, color: l.color / distance_sq } ) )
           } else {
             // It's occluded
             ( d, None )
@@ -131,6 +158,9 @@ impl Scene {
           // Outside the spot area
           ( 0, None )
         }
+      },
+      LightEnum::Area( i ) => {
+        panic!( "Not a point light source" )
       }
     }
   }

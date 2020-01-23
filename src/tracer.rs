@@ -1,8 +1,9 @@
-use crate::data::cap_stack::Stack;
-use crate::graphics::{Color3, PointMaterial, Scene};
+use crate::data::stack::DefaultStack;
+use crate::graphics::{Color3, PointMaterial, Scene, LightEnum};
 use crate::graphics::ray::{Ray};
 use crate::math::Vec3;
 use crate::math;
+use crate::rng::Rng;
 use std::f32::INFINITY;
 
 /// Individual instances of Material constructors
@@ -50,138 +51,191 @@ impl Camera {
   }
 }
 
-/// Traces an original ray, and produces a gray-scale value for that ray
-/// White values are close, black are far away
-pub fn trace_original_depth( scene : &Scene, ray : &Ray ) -> (usize,f32) {
-  let (d, res) = scene.trace_simple( ray );
-  if let Some( v ) = res {
-    (d, v)
-  } else {
-    (d, INFINITY)
+struct RenderInstance< 'a > {
+  scene        : &'a Scene,
+  rng          : &'a Rng,
+  refr_stack   : &'a DefaultStack< MatRefract >,
+  num_bvh_hits : usize
+}
+
+impl< 'a > RenderInstance< 'a > {
+  pub fn reset( &self ) {
+    self.num_bvh_hits = 0;
   }
-}
 
-pub fn trace_original_bvh( scene : &Scene, ray : &Ray ) -> usize {
-  let (d, _) = scene.trace( ray );
-  d
-}
+  /// Traces an original ray, and produces a gray-scale value for that ray
+  /// White values are close, black are far away
+  pub fn trace_original_depth( &mut self, ray : &Ray ) -> f32 {
+    let (d, res) = self.scene.trace_simple( ray );
+    self.num_bvh_hits += d;
+    if let Some( v ) = res {
+      v
+    } else {
+      INFINITY
+    }
+  }
 
-/// Traces an original ray, and produces a color for that ray
-pub fn trace_original_color( scene : &Scene, ray : &Ray, max_rays : u32, refr_stack : &mut Stack< MatRefract > ) -> (usize,Color3) {
-  let (d, _, c) = trace_color( scene, ray, max_rays, refr_stack );
-  (d, c)
-}
+  pub fn trace_original_bvh( &mut self, ray : &Ray ) {
+    let (d, _) = self.scene.trace( ray );
+    self.num_bvh_hits += d;
+  }
 
-/// Traces a ray into the scene, and returns both its distance and color to the
-/// first hit. If no hit found it returns a distance of 0 and the color black.
-/// This should be of no effect anyway.
-fn trace_color( scene : &Scene, ray : &Ray, max_rays : u32, refr_stack : &mut Stack< MatRefract > ) -> (usize, f32, Color3) {
-  if let (u0, Some( h )) = scene.trace( ray ) {
-    let hit_loc = ray.at( h.distance );
-    let mut u_sum = u0;
+  /// Traces an original ray, and produces a color for that ray
+  pub fn trace_original_color( &mut self, ray : &Ray ) -> Vec3 {
+    let (_, c) = self.trace_color( ray, Vec3::new( 1.0, 1.0, 1.0 ), true );
+    c
+  }
 
-    let color =
+  /// Traces a ray into the scene, and returns both its distance and color to the
+  /// first hit. This returns the radiance toward the ray (i.e. it is not
+  /// "projected on the eye")
+  /// * `keep_direct` - True if it should return the direct light (false after indirect bounce)
+  fn trace_color( &mut self, ray : &Ray, throughput : Vec3, keep_direct : bool ) -> (f32, Vec3) {
+    let (u0, mh) = self.scene.trace( ray );
+    self.num_bvh_hits += u0;
+
+    if let Some( h ) = mh {
+      let hit_loc = ray.at( h.distance );
+  
+      // Chance of sending a *next* ray (Russian Roulette)
+      let keep_chance = throughput.x.max( throughput.y ).max( throughput.z ).max( 0.1 ).min( 0.9 );
+      let is_ray_kept = self.rng.next( ) <= keep_chance;
+      
       match h.mat {
-        PointMaterial::Reflect { color, reflection, ks, n } => {
-          let (u1,light_color) = lights_color( scene, &hit_loc, &h.normal );
-          let (u2,res) = specular_lights_color( scene, &hit_loc, &ray.dir, &h.normal, ks, n );
-          let specular_light_color = Color3::from_vec3( res );
-          u_sum += u1 + u2;
+        PointMaterial::Reflect { color, reflection } => {
+          if self.rng.next( ) <= reflection {
 
-          if max_rays > 0 && reflection > 0.0 {
-            let refl_dir             = (-ray.dir).reflect( h.normal );
-            let refl_ray             = Ray::new( hit_loc + math::EPSILON * refl_dir, refl_dir );
-            let (u, _, refl_diffuse) = trace_color( scene, &refl_ray, max_rays - 1, refr_stack );
-            let diffuse_color        = reflection * refl_diffuse + ( 1.0 - reflection ) * color;
-            u_sum += u;
-            (light_color * diffuse_color + specular_light_color)
-          } else { // If it's at the cap, just apply direct illumination
-            (light_color * color + specular_light_color)
+            // Consider it a reflective surface
+            if is_ray_kept {
+              let refl_dir = (-ray.dir).reflect( h.normal );
+              let refl_ray = Ray::new( hit_loc + math::EPSILON * refl_dir, refl_dir );
+              let (_, refl_radiance) = self.trace_color( &refl_ray, throughput, keep_direct );
+              ( h.distance, refl_radiance * ( 1.0 / keep_chance ) )
+            } else {
+              ( h.distance, Color3::BLACK.to_vec3( ) )
+            }
+          } else {
+            // Consider it a diffuse surface
+
+            // Next event estimation
+            let (direct_radiance, to_direct_light) = self.trace_random_light( &hit_loc, &h.normal );
+            let cos_direct = 0.0_f32.max( to_direct_light.dot( h.normal ) );
+            let direct_irradiance = color.to_vec3( ).mul_elem( direct_radiance ) * cos_direct;
+
+            // Find the indirect light with the random bounce
+            if is_ray_kept {
+              let ( indirect_radiance, to_indirect_light ) = self.trace_random_indirect( &throughput.mul_elem( color.to_vec3( ) ), &hit_loc, &h.normal );
+              let cos_indirect = 0.0_f32.max( to_indirect_light.dot( h.normal ) );
+              let indirect_irradiance = color.to_vec3( ).mul_elem( indirect_radiance ) * cos_indirect;
+              ( h.distance, direct_irradiance + indirect_irradiance * ( 1.0 / keep_chance ) )
+            } else {
+              ( h.distance, direct_irradiance )
+            }
           }
         },
 
-        PointMaterial::Refract { absorption, refractive_index, ks, n } => {
-          let (u,res) = specular_lights_color( scene, &hit_loc, &ray.dir, &h.normal, ks, n );
-          let specular_light_color = Color3::from_vec3( res );
-          u_sum += u;
-
+        PointMaterial::Refract { absorption, refractive_index } => {
           let (obj_refractive_index, outside_refr_index, is_popped) =
             if h.is_entering {
-              let outside_mat = refr_stack.top( ).unwrap( );
+              let outside_mat = self.refr_stack.top( ).unwrap( );
               ( refractive_index, outside_mat.refractive_index, false )
             } else {
-              let ip = !refr_stack.pop_until1( ).is_none( ); // This is the object's material
-              let outside_mat = refr_stack.top( ).unwrap( );
+              let ip = !self.refr_stack.pop_until1( ).is_none( ); // This is the object's material
+              let outside_mat = self.refr_stack.top( ).unwrap( );
               ( outside_mat.refractive_index, refractive_index, ip )
             };
 
-          let (kr, refr_color) =
-            if max_rays > 0 {
+          let res =
+            if is_ray_kept {
               if let Some( ( kr, refr_dir ) ) = refract_fresnel( ray.dir, h.normal, outside_refr_index, obj_refractive_index ) {
-                // No total internal reflection (refract(..) returns None if that were so). So kr < 1.0
-                // Cast refraction ray
-                let refr_ray = Ray::new( hit_loc + refr_dir * math::EPSILON, refr_dir );
-
-                // Beer's law
-                // With some additional stuff. Consider the following situation
-                // --->| A   |B|   A   |C|    A |--->
-                // Here the object A contains two objects B and C
-                // but how does the central part of A absorb stuff? It is unknown from leaving B or entering C.
-                // Thus keep a stack for these weird cases
-                // Note, however, if the original ray starts inside a mesh, stuff goes wrong (so don't do this =D )
-                if h.is_entering {
-                  // This object is the contained object's outside
-                  refr_stack.push( MatRefract::new( absorption, obj_refractive_index ) );
-                  let (u,d,c) = trace_color( scene, &refr_ray, max_rays - 1, refr_stack );
-                  u_sum += u;
-                  refr_stack.pop_until1( );
-                  ( kr, c * ( -absorption * d ).exp( ) )
-                } else { // leaving the object
-                  // Note that in this case the material was popped before, and is pushed after
-                  // Which is done externally
-                  let (u,d,c) = trace_color( scene, &refr_ray, max_rays - 1, refr_stack );
-                  u_sum += u;
-
-                  let a = refr_stack.top( ).unwrap( ).absorption;
-                  ( kr, c * ( -a * d ).exp( ) )
+                if self.rng.next( ) < kr { // Send a specular reflection ray
+                  let refl_dir = (-ray.dir).reflect( h.normal );
+                  let refl_ray = Ray::new( hit_loc + refl_dir * math::EPSILON, refl_dir );
+                  let (_, c)   = self.trace_color( &refl_ray, throughput, keep_direct );
+                  ( h.distance, c * ( 1.0 / keep_chance ) )
+                } else { // Send a refraction ray
+                  let refr_ray = Ray::new( hit_loc + refr_dir * math::EPSILON, refr_dir );
+                  let c = self.trace_refract( &refr_ray, throughput, absorption, obj_refractive_index, h.is_entering, keep_direct );
+                  ( h.distance, c * ( 1.0 / keep_chance ) )
                 }
               } else { // Total internal reflection
-                ( 1.0, Color3::BLACK )
+                let refl_dir = (-ray.dir).reflect( h.normal );
+                let refl_ray = Ray::new( hit_loc + refl_dir * math::EPSILON, refl_dir );
+                let (_, c)   = self.trace_color( &refl_ray, throughput, keep_direct );
+                ( h.distance, c * ( 1.0 / keep_chance ) )
               }
             } else {
-              // This means very little, but happens when the rays don't want to
-              // go any further. Instead of black, choose a sensible color
-              let habs = absorption.x.max( absorption.y ).max( absorption.z );
-              ( 1.0, Color3::new( 1.0 - absorption.x / habs, 1.0 - absorption.y / habs, 1.0 - absorption.z / habs ) )
+              ( INFINITY, Color3::BLACK )
             };
 
           if is_popped {
             // This was popped before, so put it back. We're inside the object again
-            refr_stack.push( MatRefract::new( absorption, refractive_index ) );
+            self.refr_stack.push( MatRefract::new( absorption, refractive_index ) );
           }
 
-          let refl_color =
-            if max_rays > 0 && kr > 0.0 {
-              let refl_dir = (-ray.dir).reflect( h.normal );
-              let refl_ray = Ray::new( hit_loc + refl_dir * math::EPSILON, refl_dir );
-              let (u, _, c) = trace_color( scene, &refl_ray, max_rays - 1, refr_stack );
-              u_sum += u;
-              c
-            } else {
-              // This means very little, but happens when the rays don't want to
-              // go any further. Instead of black, choose a sensible color
-              let habs = absorption.x.max( absorption.y ).max( absorption.z );
-              let c = Color3::new( 1.0 - absorption.x / habs, 1.0 - absorption.y / habs, 1.0 - absorption.z / habs );
-              c
-            };
-
-          (refl_color * kr + specular_light_color + refr_color * ( 1.0 - kr ))
+          res
         }
-      };
+      }
+    } else { // No object hit
+      // TODO: Skybox
+      (INFINITY, self.scene.background.to_vec3( ) )
+    }
+  }
 
-    ( u_sum, h.distance, color )
-  } else {
-    ( 0, 0.0, scene.background )
+  fn trace_refract( &mut self, refr_ray : &Ray, throughput : Vec3, absorption : Vec3, obj_refractive_index : f32, is_entering : bool, keep_direct : bool ) -> Vec3 {
+    // Beer's law
+    // With some additional stuff. Consider the following situation
+    // --->| A   |B|   A   |C|    A |--->
+    // Here the object A contains two objects B and C
+    // but how does the central part of A absorb stuff? It is unknown from leaving B or entering C.
+    // Thus keep a stack for these weird cases
+    // Note, however, if the original ray starts inside a mesh, stuff goes wrong (so don't do this =D )
+    if is_entering {
+      // This object is the contained object's outside
+      self.refr_stack.push( MatRefract::new( absorption, obj_refractive_index ) );
+      let (d,c) = self.trace_color( &refr_ray, throughput, keep_direct );
+      self.refr_stack.pop_until1( );
+      c.mul_elem( ( -absorption * d ).exp( ) )
+    } else { // leaving the object
+      // Note that in this case the material was popped before, and is pushed after
+      // Which is done externally
+      let (d,c) = self.trace_color( &refr_ray, throughput, keep_direct );
+
+      let a = self.refr_stack.top( ).unwrap( ).absorption;
+      c.mul_elem( ( -a * d ).exp( ) )
+    }
+  }
+
+  /// Traces some direct light connection
+  /// Returns the radiance and direction to the light
+  fn trace_random_light( &mut self, hit_loc : &Vec3, hit_normal : &Vec3 ) -> Option< ( Vec3, Vec3 ) > {
+    // Pick (uniformly) a random light source
+    let num_lights = self.scene.lights.len( );
+    let light_id = self.rng.nextInRange( 0, num_lights );
+
+    match self.scene.lights[ light_id ] {
+      LightEnum::Point( p ) => {
+        let (u, mLightHit) = self.scene.shadow_ray_point( hit_loc, light_id );
+        self.num_bvh_hits += u;
+        if let Some( light_hit ) = mLightHit {
+          Some( ( light_hit.color, light_hit.dir ) )
+        } else {
+          None
+        }
+      },
+      LightEnum::Area( shape_id ) => {
+        let shape = self.scene.shapes[ shape_id ];
+        let area  = shape.project_hemisphere( hit_loc );
+
+        
+      }
+    }
+  }
+
+  /// Traces some indirect direction over the hemisphere
+  /// Returns the radiance and direction to wherever the light came from
+  fn trace_random_indirect( &mut self, throughput : &Vec3, hit_loc : &Vec3, hit_normal : &Vec3 ) -> (Vec3, Vec3) {
+
   }
 }
 
@@ -190,45 +244,45 @@ fn trace_color( scene : &Scene, ray : &Ray, max_rays : u32, refr_stack : &mut St
 /// * Occlusion (shadow-rays; occluded sources do not contribute)
 /// * Distance
 /// * Angle of hit
-fn lights_color( scene : &Scene, hit_loc : &Vec3, hit_normal : &Vec3 ) -> (usize, Vec3) {
-  let mut light_color = Vec3::ZERO;
-  let mut u_sum = 0;
-  for l_id in 0..scene.lights.len( ) {
-    let (u, res) = scene.shadow_ray( &hit_loc, l_id );
-    if let Some( light_hit ) = res {
-      let attenuation =
-        if let Some( dis_sq ) = light_hit.distance_sq {
-          1.0 / dis_sq
-        } else {
-          1.0
-        };
-      light_color += light_hit.color * attenuation * 0.0_f32.max( hit_normal.dot( light_hit.dir ) );
-    }
-    u_sum += u;
-  }
-  (u_sum, light_color)
-}
+// fn lights_color( scene : &Scene, hit_loc : &Vec3, hit_normal : &Vec3 ) -> (usize, Vec3) {
+//   let mut light_color = Vec3::ZERO;
+//   let mut u_sum = 0;
+//   for l_id in 0..scene.lights.len( ) {
+//     let (u, res) = scene.shadow_ray( &hit_loc, l_id );
+//     if let Some( light_hit ) = res {
+//       let attenuation =
+//         if let Some( dis_sq ) = light_hit.distance_sq {
+//           1.0 / dis_sq
+//         } else {
+//           1.0
+//         };
+//       light_color += light_hit.color * attenuation * 0.0_f32.max( hit_normal.dot( light_hit.dir ) );
+//     }
+//     u_sum += u;
+//   }
+//   (u_sum, light_color)
+// }
 
-/// Computes the specular highlight from the Phong illumination model
-/// The "reflects" the light-source onto the object
-fn specular_lights_color( scene : &Scene, hit_loc : &Vec3, i : &Vec3, normal : &Vec3, ks : f32, n : f32 ) -> (usize, Vec3) {
-  if ks == 0.0 {
-    return (0, Vec3::ZERO);
-  }
+// /// Computes the specular highlight from the Phong illumination model
+// /// The "reflects" the light-source onto the object
+// fn specular_lights_color( scene : &Scene, hit_loc : &Vec3, i : &Vec3, normal : &Vec3, ks : f32, n : f32 ) -> (usize, Vec3) {
+//   if ks == 0.0 {
+//     return (0, Vec3::ZERO);
+//   }
 
-  let mut specular_color = Vec3::ZERO;
-  let mut u_sum = 0;
-  for l_id in 0..scene.lights.len( ) {
-    let (u, res) = scene.shadow_ray( &hit_loc, l_id );
-    if let Some( light_hit ) = res {
-      // The reflection of the vector to the lightsource
-      let refl_l = light_hit.dir.reflect( *normal );
-      specular_color += light_hit.color * ks * 0.0_f32.max( refl_l.dot( -*i ) ).powf( n );
-    }
-    u_sum += u;
-  }
-  (u_sum, specular_color)
-}
+//   let mut specular_color = Vec3::ZERO;
+//   let mut u_sum = 0;
+//   for l_id in 0..scene.lights.len( ) {
+//     let (u, res) = scene.shadow_ray( &hit_loc, l_id );
+//     if let Some( light_hit ) = res {
+//       // The reflection of the vector to the lightsource
+//       let refl_l = light_hit.dir.reflect( *normal );
+//       specular_color += light_hit.color * ks * 0.0_f32.max( refl_l.dot( -*i ) ).powf( n );
+//     }
+//     u_sum += u;
+//   }
+//   (u_sum, specular_color)
+// }
 
 /// Returns the amount (in range (0,1)) of reflection, and the angle of refraction
 /// If None is returned, total internal reflection applies (and no refraction at all)
