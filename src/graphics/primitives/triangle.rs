@@ -23,6 +23,14 @@ impl Triangle {
   pub fn translate( self, v : Vec3 ) -> Triangle {
     Triangle::new( self.v0 + v, self.v1 + v, self.v2 + v, self.mat )
   }
+
+  fn normal( &self ) -> Vec3 {
+    let v0 = self.v0;
+    let v1 = self.v1;
+    let v2 = self.v2;
+
+    ( v1 - v0 ).cross( v2 - v0 )
+  }
 }
 
 // Returns true if P is on the left of line v1-v0 which has normal N
@@ -60,7 +68,7 @@ impl Tracable for Triangle {
     self.mat.is_emissive( )
   }
   
-  fn project_hemisphere( &self, p : &Vec3 ) -> f32 {
+  fn project_area_sphere( &self, p : &Vec3 ) -> f32 {
     // Project the triangle on the hemisphere of p
     let p0 = ( *p - self.v0 ).normalize( );
     let p1 = ( *p - self.v1 ).normalize( );
@@ -84,7 +92,9 @@ impl Tracable for Triangle {
     let u = rng.next( );
     let v = rng.next( ) * ( 1.0 - u );
 
-    ( 1.0 - u - v ) * p0 + u * p1 + v * p2
+    let sphere_hit = ( 1.0 - u - v ) * p0 + u * p1 + v * p2;
+
+    ( sphere_hit - *p ).normalize( )
   }
   
   fn trace( &self, ray: &Ray ) -> Option< Hit > {

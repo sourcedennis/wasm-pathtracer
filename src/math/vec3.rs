@@ -33,6 +33,18 @@ impl Vec3 {
     self.x * rhs.x + self.y * rhs.y + self.z * rhs.z
   }
 
+  /// Returns some vector that is orthogonal to the current
+  pub fn orthogonal( self ) -> Vec3 {
+    panic!( "ORTHOGONAL" );
+    if self.z > self.x && self.z > self.y {
+      self.cross( Vec3::new( 1.0, 0.0, 0.0 ) )
+    } else if self.x > self.y && self.x > self.z {
+      self.cross( Vec3::new( 0.0, 1.0, 0.0 ) )
+    } else {
+      self.cross( Vec3::new( 0.0, 0.0, 1.0 ) )
+    }
+  }
+
   /// Computes the crosss product with the provided Vec3
   pub fn cross( self, t : Vec3 ) -> Vec3 {
     Vec3::new(

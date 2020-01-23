@@ -55,7 +55,10 @@ struct RenderInstance< 'a > {
   scene        : &'a Scene,
   rng          : &'a Rng,
   refr_stack   : &'a DefaultStack< MatRefract >,
-  num_bvh_hits : usize
+  num_bvh_hits : usize,
+
+  // True if Next-Event-Estimation is enabled
+  has_nee : bool
 }
 
 impl< 'a > RenderInstance< 'a > {
@@ -104,7 +107,6 @@ impl< 'a > RenderInstance< 'a > {
       match h.mat {
         PointMaterial::Reflect { color, reflection } => {
           if self.rng.next( ) <= reflection {
-
             // Consider it a reflective surface
             if is_ray_kept {
               let refl_dir = (-ray.dir).reflect( h.normal );
@@ -218,6 +220,7 @@ impl< 'a > RenderInstance< 'a > {
         let (u, mLightHit) = self.scene.shadow_ray_point( hit_loc, light_id );
         self.num_bvh_hits += u;
         if let Some( light_hit ) = mLightHit {
+          // Note that `color` is already distance attenuated
           Some( ( light_hit.color, light_hit.dir ) )
         } else {
           None
@@ -225,9 +228,13 @@ impl< 'a > RenderInstance< 'a > {
       },
       LightEnum::Area( shape_id ) => {
         let shape = self.scene.shapes[ shape_id ];
+        let point = shape.pick_random( &mut self.rng, hit_loc );
+
+        if self.scene.trace_simple(ray: &Ray)
+        
         let area  = shape.project_hemisphere( hit_loc );
 
-        
+        None
       }
     }
   }

@@ -92,13 +92,15 @@ pub trait Tracable : Bounded {
   /// Returns true when the shape is in any way emissive
   fn is_emissive( &self ) -> bool;
 
-  /// Project the shape on the hemisphere of point `p` with normal `p_normal`
+  /// Project the shape on the sphere of point `p` with normal `p_normal`
+  /// Note: This is sphere, instead of hemisphere, because that is easier
   /// Returns the area
-  fn project_hemisphere( &self, p : &Vec3 ) -> f32 {
+  fn project_area_sphere( &self, p : &Vec3 ) -> f32 {
     panic!( "Not implemented" );
   }
 
-  /// Pick a random point on the shape source that can reach point `p`
+  /// Pick a random point *on the sphere around p*, which points toward this
+  /// shape.
   fn pick_random( &self, rng : &mut Rng, p : &Vec3 ) -> Vec3 {
     panic!( "Not implemented" );
   }

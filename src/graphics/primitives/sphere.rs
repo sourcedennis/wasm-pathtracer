@@ -4,6 +4,7 @@ use std::f32::consts::PI;
 use crate::math::{Vec2, Vec3};
 use crate::graphics::{Color3, Material, PointMaterial, AABB};
 use crate::graphics::ray::{Ray, Tracable, Bounded, Marchable, Hit};
+use crate::rng::Rng;
 
 /// A Sphere primitive
 #[derive(Debug, Clone)]
@@ -39,6 +40,14 @@ impl Bounded for Sphere {
 impl Tracable for Sphere {
   fn is_emissive( &self ) -> bool {
     self.mat.is_emissive( )
+  }
+  
+  fn project_area_sphere( &self, p : &Vec3 ) -> f32 {
+    panic!( "PROJECT SHERE HEMISPHERE" );
+  }
+
+  fn pick_random( &self, rng : &mut Rng, p : &Vec3 ) -> (Vec3, Vec3) {
+    panic!( "PICK RANDOM SPHERE" );
   }
   
   fn trace( &self, ray : &Ray ) -> Option< Hit > {
