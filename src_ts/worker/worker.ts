@@ -1,39 +1,90 @@
-import { Msg, MsgC2WInit, MsgC2WCompute, MsgC2WUpdateCamera, MsgC2WUpdateParams
-       , MsgC2WUpdateScene, MsgW2CInitDone, MsgW2CComputeDone, MsgW2CBvhDone
-       , MsgC2WStoreMesh, MsgC2WStoreTexture, MsgC2WRebuildBVH, MsgW2CTextureDone
-       , MsgW2CMeshDone,
-       MsgW2CUpdateSceneDone
+import { Msg, MsgC2WInit, MsgC2WUpdateCamera
+       , MsgC2WUpdateScene, MsgW2CInitDone, MsgW2CComputeDone
+       , MsgC2WStoreMesh, MsgC2WStoreTexture
+       , MsgC2WPause, MsgC2WResume, MsgC2WUpdateViewport
        } from '@s/worker_messages';
 import { MsgHandler } from './msg_handler';
+import { Camera } from '@s/graphics/camera';
 
 declare function postMessage( msg : any ): void;
 
 // ### Global State (to the worker) ###
-let instance : any;
-let width    : number;
-let height   : number;
-let buffer   : Uint8Array;
-let pixels   : any[];
+let instance  : any; // WebAssembly.Instance
+let width     : number;
+let height    : number;
+let buffer    : Uint8Array;
+let isRunning : boolean;
+// Check if the "run-loop" actually stopped, to avoid double run loops
+let hasRegisteredStopping : boolean;
+// The number of rays that are rendered before the screen is updated
+// This amount is adjusted to be approx 50ms
+let numRaysPerTick : number = 500;
+
+let hasUpdatedCamera   : boolean = false;
+let hasUpdatedViewport : boolean = false;
+let camera             : Camera;
 
 // The worker handles messages from the main thread
 // These typically pass information along to the WASM module
 //   and return a confirmation message.
 const handlers = new MsgHandler( );
-handlers.register( 'init',          handleInit );
-handlers.register( 'compute',       handleCompute );
-handlers.register( 'update_params', handleUpdateParams )
-handlers.register( 'update_camera', handleUpdateCamera );
-handlers.register( 'update_scene',  handleUpdateScene );
-handlers.register( 'store_mesh',    handleStoreMesh );
-handlers.register( 'store_texture', handleStoreTexture );
-handlers.register( 'rebuild_bvh',   handleRebuildBvh );
-handlers.register( 'disable_bvh',   handleDisableBvh );
+handlers.register( 'init',            handleInit );
+handlers.register( 'update_viewport', handleUpdateViewport );
+handlers.register( 'update_camera',   handleUpdateCamera );
+handlers.register( 'update_scene',    handleUpdateScene );
+handlers.register( 'store_mesh',      handleStoreMesh );
+handlers.register( 'store_texture',   handleStoreTexture );
+handlers.register( 'pause',           handlePause );
+handlers.register( 'resume',          handleResume );
 
 onmessage = ev => {
   handlers.handle( ev.data );
 };
 
 // ## The message handlers ##
+
+// Performs a single "tick" of computation
+function run( ) {
+  if ( !isRunning ) {
+    hasRegisteredStopping = true;
+    return;
+  }
+
+  if ( hasUpdatedCamera ) {
+    let c = camera;
+    instance.exports.update_camera( c.location.x, c.location.y, c.location.z, c.rotX, c.rotY );
+    hasUpdatedCamera = false;
+  }
+  if ( hasUpdatedViewport ) {
+    instance.exports.update_viewport( width, height );
+    hasUpdatedViewport = false;
+  }
+
+  let startTime = Date.now( );
+  instance.exports.compute( numRaysPerTick );
+  let endTime = Date.now( );
+
+  if ( startTime == endTime ) {
+    numRaysPerTick = 1000;
+  } else {
+    // Make sure on tick takes around 50ms
+    let scale = 50 / ( endTime - startTime );
+    numRaysPerTick = Math.floor( numRaysPerTick * scale );
+  }
+
+  // Store the result in shared memory
+  let resPtr = instance.exports.results( );
+  let mem8 = new Uint8Array( instance.exports.memory.buffer, resPtr, width * height * 4 );
+  buffer.set( mem8, 0 );
+
+  // And notify the main thread, to write the shared buffer to the screen
+  postMessage( < MsgW2CComputeDone > { type: 'compute_done' } );
+
+  // Make sure to give back control to the JavaScript event loop, which handles
+  // new messages
+  isRunning = true;
+  setTimeout( ( ) => run( ), 0 );
+}
 
 // Initialises the worker state and WASM module
 function handleInit( msg : MsgC2WInit ): void {
@@ -51,66 +102,45 @@ function handleInit( msg : MsgC2WInit ): void {
       }
     };
 
-  let camera = msg.camera;
+  let cam = msg.camera;
+  camera = msg.camera;
 
   ( <any> WebAssembly ).instantiate( mod, importObject ).then( ins => {
-    let iStartTime = Date.now( );
-    // Pass all the primitives to initialisation
-    ins.exports.init( msg.width, msg.height, msg.sceneId, msg.renderType, msg.rayDepth
-      , camera.location.x, camera.location.y, camera.location.z, camera.rotX, camera.rotY );
-
-    let rayPtr = ins.exports.ray_store( msg.pixels.length );
-    let raysDst = new Uint32Array( ins.exports.memory.buffer, rayPtr, msg.width * msg.height * 2 );
-
-    for ( let i = 0; i < msg.pixels.length; i++ ) {
-      raysDst[ 2 * i + 0 ] = msg.pixels[ i ].x;
-      raysDst[ 2 * i + 1 ] = msg.pixels[ i ].y;
-    }
-    ins.exports.ray_store_done( );
-
-    console.log( 'init time', Date.now( ) - iStartTime );
-
-    pixels = msg.pixels;
     instance = ins;
 
+    // Pass all the primitives to initialisation
+    ins.exports.init( msg.width, msg.height, msg.sceneId, /* color */ 0
+      , cam.location.x, cam.location.y, cam.location.z, cam.rotX, cam.rotY );
+
     postMessage( <MsgW2CInitDone> { type: 'init_done' } );
+
+    console.log( 'init done' );
+
+    isRunning = true;
+    setTimeout( ( ) => run( ), 0 );
   } );
 }
 
-// Performs the computation for a single render cycle
-// The results are stored in the shared buffer
-function handleCompute( msg : MsgC2WCompute ) {
-  let numBVHHits = instance.exports.compute( );
-  let resPtr = instance.exports.results( );
-  let mem8 = new Uint8Array( instance.exports.memory.buffer, resPtr, width * height * 4 );
-  for ( let i = 0; i < pixels.length; i++ ) {
-    let x = pixels[ i ].x;
-    let y = pixels[ i ].y;
-
-    buffer[ 4 * ( y * width + x ) + 0 ] = mem8[ 4 * ( y * width + x ) + 0 ];
-    buffer[ 4 * ( y * width + x ) + 1 ] = mem8[ 4 * ( y * width + x ) + 1 ];
-    buffer[ 4 * ( y * width + x ) + 2 ] = mem8[ 4 * ( y * width + x ) + 2 ];
-    buffer[ 4 * ( y * width + x ) + 3 ] = mem8[ 4 * ( y * width + x ) + 3 ];
-  }
-  postMessage( <MsgW2CComputeDone> { type: 'compute_done', numBVHHits } );
+// Updates the viewport. Note that this is only performed in the next `run()` call
+function handleUpdateViewport( msg : MsgC2WUpdateViewport ) {
+  width  = msg.width;
+  height = msg.height;
+  buffer = new Uint8Array( msg.buffer );
+  hasUpdatedViewport = true;
 }
 
-// Updates some rendering parameters, which affect the next rendered pixels
-function handleUpdateParams( msg : MsgC2WUpdateParams ) {
-  instance.exports.update_params( msg.renderType, msg.maxRayDepth );
-}
-
-// Updates the camera location
+// Updates the camera location. Note that this is only performed in the next `run()` call
 function handleUpdateCamera( msg : MsgC2WUpdateCamera ) {
-  const cam = msg.camera;
-  instance.exports.update_camera( cam.location.x, cam.location.y, cam.location.z, cam.rotX, cam.rotY );
+  camera = msg.camera;
+  hasUpdatedCamera = true;
 }
 
 // Selects a new scene. `msg.sceneId` is a (magic) integer that is shared
 //   between the Elm front-end and WASM module for communication.
 function handleUpdateScene( msg : MsgC2WUpdateScene ) {
   instance.exports.update_scene( msg.sceneId );
-  postMessage( <MsgW2CUpdateSceneDone> { type: 'update_scene_done' } );
+  // Updating the scene makes it black. Redraw it
+  postMessage( < MsgW2CComputeDone > { type: 'compute_done' } );
 }
 
 // Passes a mesh to the WASM client
@@ -122,7 +152,6 @@ function handleStoreMesh( msg : MsgC2WStoreMesh ) {
   let dst = new Float32Array( exps.memory.buffer, ptrVertices, msg.mesh.vertices.length );
   dst.set( msg.mesh.vertices );
   exps.notify_mesh_loaded( msg.id );
-  postMessage( <MsgW2CMeshDone> { type: 'mesh_done' } );
 }
 
 // Passes a texture to the WASM client
@@ -132,18 +161,25 @@ function handleStoreTexture( msg : MsgC2WStoreTexture ) {
   let dst = new Uint8Array( exps.memory.buffer, ptrRgb, msg.texture.width * msg.texture.height * 3 );
   dst.set( msg.texture.data );
   exps.notify_texture_loaded( msg.id );
-  postMessage( <MsgW2CTextureDone> { type: 'texture_done' } );
 }
 
-// Requests to rebuild the BVH
-function handleRebuildBvh( msg : MsgC2WRebuildBVH ) {
-  let exps = <any> instance.exports;
-  let numNodes = exps.rebuild_bvh( msg.numBins, msg.isBVH4 ? 1 : 0 );
-  postMessage( <MsgW2CBvhDone> { type: 'bvh_done', numNodes } );
+// Pauses the continuous render calls
+function handlePause( msg : MsgC2WPause ) {
+  isRunning = false;
 }
 
-// Requests to disable the BVH
-function handleDisableBvh( msg : MsgC2WRebuildBVH ) {
-  let exps = <any> instance.exports;
-  exps.disable_bvh( );
+// Resumes the continuous render calls
+function handleResume( msg : MsgC2WResume ) {
+  if ( !isRunning ) {
+    if ( hasRegisteredStopping ) {
+      // The previous loop terminated, so start a new one
+      hasRegisteredStopping = false;
+      isRunning = true;
+      setTimeout( ( ) => run( ), 0 );
+    } else {
+      // It was marked to stop, but didn't actually stop. So reuse the old
+      // render loop
+      isRunning = true;
+    }
+  }
 }

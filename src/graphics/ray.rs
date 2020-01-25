@@ -58,7 +58,7 @@ pub struct Hit {
 impl Hit {
   /// Constructs a new `Hit` at a distance from its ray origin
   pub fn new( distance : f32, normal : Vec3, mat : PointMaterial, is_entering : bool ) -> Hit {
-    Hit { distance, normal, mat, is_entering }
+    Hit { distance, normal: normal.normalize( ), mat, is_entering }
   }
 }
 
@@ -92,18 +92,20 @@ pub trait Tracable : Bounded {
   /// Returns true when the shape is in any way emissive
   fn is_emissive( &self ) -> bool;
 
-  /// Project the shape on the sphere of point `p` with normal `p_normal`
-  /// Note: This is sphere, instead of hemisphere, because that is easier
-  /// Returns the area
-  fn project_area_sphere( &self, p : &Vec3 ) -> f32 {
+  /// The point `p` with its normal `p_normal` represent a hemisphere
+  /// This functions returns the area of this shape on that hemisphere
+  /// This can never be more than `2*PI`
+  fn solid_hemi_angle( &self, p : &Vec3, p_normal : &Vec3 ) -> f32 {
+    panic!( "Not implemented" );
+  }
+
+  fn surface_area( &self ) -> f32 {
     panic!( "Not implemented" );
   }
 
   /// Pick a random point *on the sphere around p*, which points toward this
-  /// shape.
-  fn pick_random( &self, rng : &mut Rng, p : &Vec3 ) -> Vec3 {
-    panic!( "Not implemented" );
-  }
+  /// shape. Secondly, returns the normal. Thirdly, also returns the intensity
+  fn pick_random( &self, rng : &mut Rng ) -> (Vec3, Vec3, Vec3);
 
   /// Traces a ray with limited properties evaluated at the hit.
   /// That is, no normal or materials are included. Only its distance from the

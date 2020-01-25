@@ -2,20 +2,19 @@
 use wasm_bindgen::prelude::*;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::cell::RefCell;
 // Local imports
-use crate::data::stack::{DefaultStack};
-use crate::graphics::{Scene, MarchScene};
+use crate::graphics::{Scene};
 use crate::graphics::ray::{Ray, Tracable};
 use crate::graphics::primitives::{Triangle};
 use crate::graphics::{Mesh, Texture, Color3};
 use crate::math::{Vec3};
-use crate::math;
 use crate::scenes::{setup_scene_cubesphere, setup_scene_bunny_low, setup_scene_bunny_high,
-  setup_scene_cloud100, setup_scene_cloud10k, setup_scene_cloud100k, setup_scene_march};
-use crate::tracer::{MatRefract, Camera, trace_original_color, trace_original_depth, trace_original_bvh};
-use crate::marcher::{march_original_color, march_original_depth};
+  setup_scene_cloud100, setup_scene_cloud10k, setup_scene_cloud100k};
+use crate::tracer::{RenderInstance, RenderType, Camera};
 use crate::graphics::{Material};
 use crate::rng::Rng;
+use crate::render_target::RenderTarget;
 
 // This file contains all the functions that are exposed through WebAssembly
 // Interfacing with JavaScript is a bit annoying, as only primitives (i32, i64, f32, f64)
@@ -35,22 +34,22 @@ use crate::rng::Rng;
 
 /// The "render type". This is the "type" of visuals that are displayed on the
 /// screen.
-enum RenderType {
-  RenderColor, RenderDepth, RenderBVH
-}
+// enum RenderType {
+//   RenderColor, RenderDepth, RenderBVH
+// }
 
-impl RenderType {
-  /// Converts a "magic number" representing the type (obtained externally) into
-  /// the proper `RenderType` element.
-  fn from( u : u32 ) -> RenderType {
-    match u {
-      0 => RenderType::RenderColor,
-      1 => RenderType::RenderDepth,
-      2 => RenderType::RenderBVH,
-      _ => RenderType::RenderColor
-    }
-  }
-}
+// impl RenderType {
+//   /// Converts a "magic number" representing the type (obtained externally) into
+//   /// the proper `RenderType` element.
+//   fn from( u : u32 ) -> RenderType {
+//     match u {
+//       0 => RenderType::RenderColor,
+//       1 => RenderType::RenderDepth,
+//       2 => RenderType::RenderBVH,
+//       _ => RenderType::RenderColor
+//     }
+//   }
+// }
 
 /// The state of a rendering session
 ///   (Sessions change upon framebuffer resize)
@@ -58,22 +57,17 @@ struct Config {
   // ## Global State
   meshes          : HashMap< u32, Mesh >,
   textures        : HashMap< u32, Texture >,
-  rng             : Rng,
+  rng             : Rc< RefCell< Rng > >,
 
   // ## Session State
-  viewport_width  : u32,
-  viewport_height : u32,
-  render_type     : RenderType,
-  acc_buffer      : Vec< Vec3 >,
-  acc_counts      : Vec< usize >,
-  resultbuffer    : Vec< u8 >,
+  target          : Rc< RefCell< RenderTarget > >,
+  //render_type     : RenderType,
   scene_id        : u32,
-  scene           : Scene,
-  camera          : Camera,
+  scene           : Rc< RefCell< Scene > >,
+  camera          : Rc< RefCell< Camera > >,
 
-  // ## Preallocation Stuff
-  // (avoids dynamic allocation)
-  mat_stack       : DefaultStack< MatRefract >,
+  left_instance   : RenderInstance,
+  right_instance  : RenderInstance
 }
 
 /// This is global state, which it must be. WASM is called through
@@ -84,51 +78,55 @@ static mut CONFIG : Option< Config > = None;
 /// Initialises the *Session State*.
 #[wasm_bindgen]
 #[allow(dead_code)]
-pub fn init( width : u32, height : u32, scene_id : u32, render_type : u32, max_ray_depth : u32
+pub fn init( width : u32, height : u32, scene_id : u32, render_type : u32
            , cam_x : f32, cam_y : f32, cam_z : f32, cam_rot_x : f32, cam_rot_y : f32 ) {
   unsafe {
     // Here is quite some code duplication, but this is hard to avoid as global state needs
     // to remain preserved. Doing this otherwise causes Rust to allocate a copy of this global
     // state, which is too expensive. (It contains all triangle meshes)
+
+    let left_width = ( width / 2 ) as usize;
+
     if let Some( ref mut conf ) = CONFIG {
+      let scene            = Rc::new( RefCell::new( select_scene( scene_id, &conf.meshes, &conf.textures ) ) );
+      let camera           = Rc::new( RefCell::new( Camera::new( Vec3::new( cam_x, cam_y, cam_z ), cam_rot_x, cam_rot_y ) ) );
+      let target           = Rc::new( RefCell::new( RenderTarget::new( width as usize, height as usize ) ) );
+
       // Preserve global state
       // ## Session State
-      conf.viewport_width  = width;
-      conf.viewport_height = height;
-      conf.render_type     = RenderType::from( render_type );
-      conf.acc_buffer      = vec![Vec3::ZERO; (width*height) as usize];
-      conf.acc_counts      = vec![0; (width*height) as usize];
-      conf.resultbuffer    = vec![0; (width*height*4) as usize];
+      conf.target          = target.clone( );
+      //conf.render_type     = RenderType::from( render_type );
       conf.scene_id        = scene_id;
-      conf.scene           = select_scene( scene_id, &conf.meshes, &conf.textures );
-      conf.camera          = Camera::new( Vec3::new( cam_x, cam_y, cam_z ), cam_rot_x, cam_rot_y );
-
-      // ## Preallocation Stuff
-      conf.mat_stack       = DefaultStack::new1( ( max_ray_depth + 1 ) as usize, MatRefract::AIR );
+      conf.scene           = scene;
+      conf.camera          = camera;
+      conf.left_instance   = RenderInstance::new( conf.scene.clone( ), conf.camera.clone( ), conf.rng.clone( ), 0, 0, left_width, height as usize, target.clone( ), RenderType::Adaptive );
+      conf.right_instance  = RenderInstance::new( conf.scene.clone( ), conf.camera.clone( ), conf.rng.clone( ), left_width, 0, width as usize - left_width, height as usize, target, RenderType::NormalNEE );
     } else {
       let meshes   = HashMap::new( );
       let textures = HashMap::new( );
-      let scene    = select_scene( scene_id, &meshes, &textures );
+      let scene    = Rc::new( RefCell::new( select_scene( scene_id, &meshes, &textures ) ) );
+      let camera   = Rc::new( RefCell::new( Camera::new( Vec3::new( cam_x, cam_y, cam_z ), cam_rot_x, cam_rot_y ) ) );
+      let target   = Rc::new( RefCell::new( RenderTarget::new( width as usize, height as usize ) ) );
+      let rng      = Rc::new( RefCell::new( Rng::new( ) ) );
+
+      let left_instance  = RenderInstance::new( scene.clone( ), camera.clone( ), rng.clone( ), 0, 0, left_width, height as usize, target.clone( ), RenderType::Adaptive );
+      let right_instance = RenderInstance::new( scene.clone( ), camera.clone( ), rng.clone( ), left_width, 0, width as usize - left_width, height as usize, target.clone( ), RenderType::NormalNEE );
 
       CONFIG = Some( Config {
         // ## Global State
         meshes
       , textures
-      , rng: Rng::new( )
+      , rng:              rng.clone( )
 
         // ## Session State
-      , viewport_width:   width
-      , viewport_height:  height
-      , render_type:      RenderType::from( render_type )
-      , acc_buffer:       vec![Vec3::ZERO; (width*height) as usize]
-      , acc_counts:       vec![0; (width*height) as usize]
-      , resultbuffer:     vec![0; (width*height*4) as usize]
+      //, render_type:      RenderType::from( render_type )
+      , target
       , scene_id
-      , scene
-      , camera:           Camera::new( Vec3::new( cam_x, cam_y, cam_z ), cam_rot_x, cam_rot_y )
+      , scene:            scene.clone( )
+      , camera
 
-        // ## Preallocation Stuff
-      , mat_stack:        DefaultStack::new1( ( max_ray_depth + 1 ) as usize, MatRefract::AIR )
+      , left_instance
+      , right_instance
       } );
     };
   }
@@ -141,7 +139,8 @@ pub fn init( width : u32, height : u32, scene_id : u32, render_type : u32, max_r
 pub fn results( ) -> *const u8 {
   unsafe {
     if let Some( ref conf ) = CONFIG {
-      conf.resultbuffer.as_ptr( )
+      let target = conf.target.borrow( );
+      target.results( ).as_ptr( )
     } else {
       panic!( "init not called" )
     }
@@ -150,16 +149,11 @@ pub fn results( ) -> *const u8 {
 
 pub fn reset( ) {
   unsafe {
-    if let Some( ref conf ) = CONFIG {
-      let wh = ( conf.viewport_width * conf.viewport_height ) as usize;
-      for i in 0..wh {
-        conf.acc_buffer[ i ] = Vec3::ZERO;
-        conf.acc_counts[ i ] = 0;
-        conf.resultbuffer[ i * 4 + 0 ] = 0;
-        conf.resultbuffer[ i * 4 + 1 ] = 0;
-        conf.resultbuffer[ i * 4 + 2 ] = 0;
-        conf.resultbuffer[ i * 4 + 3 ] = 0;
-      }
+    if let Some( ref mut conf ) = CONFIG {
+      let mut target = conf.target.borrow_mut( );
+      target.clear( );
+      conf.left_instance.reset( );
+      conf.right_instance.reset( );
     } else {
       panic!( "init not called" )
     }
@@ -188,8 +182,25 @@ pub fn reset( ) {
 pub fn update_scene( scene_id : u32 ) {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
-      conf.scene_id = scene_id;
-      conf.scene    = select_scene( scene_id, &conf.meshes, &conf.textures );
+      conf.scene_id             = scene_id;
+      *conf.scene.borrow_mut( ) = select_scene( scene_id, &conf.meshes, &conf.textures );
+      reset( );
+    } else {
+      panic!( "init not called" )
+    }
+  }
+}
+
+/// Updates the viewport, and thus the render buffer
+#[wasm_bindgen]
+#[allow(dead_code)]
+pub fn update_viewport( width : u32, height : u32 ) {
+  unsafe {
+    if let Some( ref mut conf ) = CONFIG {
+      *conf.target.borrow_mut( ) = RenderTarget::new( width as usize, height as usize );
+      let left_width = width / 2;
+      conf.left_instance.resize( 0, 0, left_width as usize, height as usize );
+      conf.right_instance.resize( left_width as usize, 0, ( width - left_width ) as usize, height as usize );
       reset( );
     } else {
       panic!( "init not called" )
@@ -205,7 +216,7 @@ pub fn update_scene( scene_id : u32 ) {
 pub fn update_camera( cam_x : f32, cam_y : f32, cam_z : f32, cam_rot_x : f32, cam_rot_y : f32 ) {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
-      conf.camera = Camera::new( Vec3::new( cam_x, cam_y, cam_z ), cam_rot_x, cam_rot_y );
+      *conf.camera.borrow_mut( ) = Camera::new( Vec3::new( cam_x, cam_y, cam_z ), cam_rot_x, cam_rot_y );
       reset( );
     } else {
       panic!( "init not called" )
@@ -283,7 +294,7 @@ pub fn notify_mesh_loaded( id : u32 ) -> bool {
       if ( id == 0 && conf.scene_id == 1 ) ||
          ( id == 1 && conf.scene_id == 2 ) ||
          ( id == 2 && conf.scene_id == 3 ) {
-        conf.scene = select_scene( conf.scene_id, &conf.meshes, &conf.textures );
+        *conf.scene.borrow_mut( ) = select_scene( conf.scene_id, &conf.meshes, &conf.textures );
         reset( );
         true
       } else {
@@ -332,169 +343,20 @@ pub fn notify_texture_loaded( _id : u32 ) -> bool {
   }
 }
 
-/// Rebuilds the BVH, and returns the number of nodes
-#[wasm_bindgen]
-#[allow(dead_code)]
-pub fn rebuild_bvh( num_bins : u32, is_bvh4 : u32 ) -> u32 {
-  unsafe {
-    if let Some( ref mut conf ) = CONFIG {
-      conf.scene.rebuild_bvh( num_bins as usize, is_bvh4 != 0 )
-    } else {
-      panic!( "init not called" )
-    }
-  }
-}
-
-/// Disables the BVH
-#[wasm_bindgen]
-#[allow(dead_code)]
-pub fn disable_bvh( ) {
-  unsafe {
-    if let Some( ref mut conf ) = CONFIG {
-      conf.scene.disable_bvh( );
-    } else {
-      panic!( "init not called" )
-    }
-  }
-}
-
-/// Actually traces all the rays
+/// Actually traces the rays
 /// Note that it only traces rays whose pixels are assigned to this instance.
 ///   (in multi-threading different instances are assigned different pixels)
 /// Returns the number of intersected BVH nodes
 #[wasm_bindgen]
 #[allow(dead_code)]
-pub fn compute( ) {
+pub fn compute( num_samples : usize ) {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
-      // These two loops are extracted (instead of checking for `is_depth` in the body),
-      //   because I'm unsure whether the compiler hoists this. So, I hoist it.
-      match conf.render_type {
-        RenderType::RenderBVH   => compute_bvh( conf ),
-        RenderType::RenderColor => compute_color( conf ),
-        RenderType::RenderDepth => compute_depth( conf )
-      }
+      let num_samples_left = num_samples / 2;
+      conf.left_instance.compute( num_samples_left );
+      conf.right_instance.compute( num_samples - num_samples_left );
     } else {
       panic!( "init not called" )
-    }
-  }
-}
-
-/// Traces rays to obtain a depth buffer of the scene (for assigned pixels)
-/// Returns the number of intersected BVH nodes
-fn compute_depth( conf : &mut Config ) {
-  // match conf.scene {
-  //   SceneEnum::Trace( ref s ) => {
-  //     let mut u_sum = 0;
-  //     for i in 0..(conf.num_rays as usize) {
-  //       let (x, y) = conf.pixel_coords[ i ];
-
-  //       let (u, res) = trace_original_depth( s, &conf.rays[ i ] );
-  //       let v = 1.0 - math::clamp( ( res - 5.0 ) / 12.0, 0.0, 1.0 );
-
-  //       conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * v ) as u8;
-  //       conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * v ) as u8;
-  //       conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * v ) as u8;
-  //       conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
-
-  //       u_sum += u;
-  //     }
-  //     u_sum as u32
-  //   },
-  //   SceneEnum::March( ref s ) => {
-  //     for i in 0..(conf.num_rays as usize) {
-  //       let (x, y) = conf.pixel_coords[ i ];
-
-  //       let res = march_original_depth( s, &conf.rays[ i ] );
-
-  //       conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
-  //       conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
-  //       conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
-  //       conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
-  //     }
-  //     0 // marching has no BVH. Yet?
-  //   }
-  // }
-}
-
-/// Traces rays and, instead of diffuse colors, displays the number of BVH
-///   intersections for the ray. 0-100 goes from green to blue. 100-200 goes
-///   from blue to red. Anything above 200 is red.
-/// The summed (over all rays) number of BVH hits is returned.
-fn compute_bvh( conf : &mut Config ) {
-  // match conf.scene {
-  //   SceneEnum::Trace( ref s ) => {
-  //     let mut d_sum : u32 = 0;
-
-  //     for i in 0..(conf.num_rays as usize) {
-  //       let (x, y) = conf.pixel_coords[ i ];
-
-  //       let d = trace_original_bvh( s, &conf.rays[ i ] );
-  //       let v = math::clamp( d as f32 / 200.0, 0.0, 1.0 );
-
-  //       let res =
-  //         if v < 0.5 { // blur from green to blue
-  //           Color3::new( 0.0, 1.0 - v * 2.0, v * 2.0 )
-  //         } else { // blur from blue to red
-  //           Color3::new( ( v - 0.5 ) * 2.0, 0.0, 1.0 - ( v - 0.5 ) * 2.0 )
-  //         };
-  //       d_sum += d as u32;
-
-  //       conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
-  //       conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
-  //       conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
-  //       conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
-  //     }
-  //     d_sum
-  //   },
-  //   SceneEnum::March( ref _s ) => {
-  //     // Ray marching scenes have no BVH's (yet), so display all black
-  //     for i in 0..(conf.num_rays as usize) {
-  //       let (x, y) = conf.pixel_coords[ i ];
-
-  //       conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = 0;
-  //       conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = 0;
-  //       conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = 0;
-  //       conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
-  //     }
-  //     0 // No BVH for marching. Yet?
-  //   }
-  // }
-}
-
-/// Traces rays to obtain a diffuse buffer of the scene (for assigned pixels)
-fn compute_color( conf : &mut Config ) {
-  let mat_stack = &mut conf.mat_stack;
-
-  let s = conf.scene;
-
-  let origin = conf.camera.location;
-  let fw = conf.viewport_width as f32;
-  let fh = conf.viewport_height as f32;
-  let w_inv = 1.0 / fw as f32;
-  let h_inv = 1.0 / fh as f32;
-  let ar = fw / fh;
-
-  for y in 0..conf.viewport_height {
-    for x in 0..conf.viewport_width {
-      let x_dev = conf.rng.next( );
-      let y_dev = conf.rng.next( );
-
-      let fx = ( ( x as f32 + x_dev ) * w_inv - 0.5_f32 ) * ar;
-      let fy = 0.5_f32 - ( y as f32 + y_dev ) * h_inv;
-
-      let pixel = Vec3::new( fx, fy, 0.8 );
-      let dir   = pixel.normalize( ).rot_x( conf.camera.rot_x ).rot_y( conf.camera.rot_y );
-      
-      let ray = Ray::new( origin, dir );
-
-      // Note that `mat_stack` already contains the "material" for air (so now it's a stack of air)
-      let (_, res) = trace_original_color( &mut conf.rng, &conf.scene, &ray, mat_stack );
-      
-      conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 0 ) as usize ] = ( 255.0 * res.red ) as u8;
-      conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 1 ) as usize ] = ( 255.0 * res.green ) as u8;
-      conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 2 ) as usize ] = ( 255.0 * res.blue ) as u8;
-      conf.resultbuffer[ ( ( y * conf.viewport_width + x ) * 4 + 3 ) as usize ] = 255;
     }
   }
 }

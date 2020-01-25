@@ -3,9 +3,7 @@ import { Vec3 }                        from '@s/math/vec3';
 import { Camera }                      from '@s/graphics/camera';
 import { Triangles }                   from '@s/graphics/triangles';
 import { CHECKER_RED_YELLOW, Texture } from '@s/graphics/texture';
-import { Runner }                      from './control/runner';
-import { RenderTarget, CanvasElement } from './control/render_target';
-import { FpsTracker }                  from './control/fps_tracker';
+import { RenderTarget, CanvasElement } from './render_target';
 import { CameraController }            from './input/camera_controller';
 import { BackgroundPathTracer }        from './background_pathtracer';
 import { Elm as ElmScene }             from './PanelScenes.elm';
@@ -13,38 +11,10 @@ import { Elm as ElmSettings }          from './PanelSettings.elm';
 import { parseObj }                    from './obj_parser';
 import { MeshId }                      from './meshes';
 
-// A configuration for the raytracer
-// It is modified by UI options
-class Config {
-  // Viewport width
-  public width            : number;
-  // Viewport height
-  public height           : number;
-  // True if it is currently running
-  public isRunning        : boolean;
-  // 0=color, 1=depth, 2=bvh
-  // public renderType       : number;
-  // An unique id for hard-coded scenes. (Defined in the Rust part)
-  public sceneId          : number;
-
-  // 0=disabled. 1=bvh2. 2=bvh4
-  public bvhState         : number;
-
-  public constructor( ) {
-    this.width            = 512;
-    this.height           = 512;
-    // this.renderType       = 0; // 0=color, 1=depth, 2=bvh
-    this.sceneId          = 0;
-    this.bvhState         = 0;
-  }
-}
-
 // An enclosing of the global raytracer state. Any interactions with the UI
 //   can call methods on this environment, which coordinates it with the
 //   relevant sub-components
 class Global {
-  // The active configuration
-  private readonly _config           : Config;
   // The compiled WASM module (which contains the actual raytracer)
   private readonly _mod              : WebAssembly.Module;
   // Provides camera movement through keyboard controls
@@ -55,27 +25,31 @@ class Global {
   private readonly _canvasElem       : CanvasElement;
   // The actual path tracer (runs in a background WebWorker)
   private          _tracer           : BackgroundPathTracer;
-  // All the meshes that were loaded (as polygon soups)
-  private          _meshes           : Map< number, Triangles >;
-  // All the textures that were loaded
-  private          _textures         : Map< number, Texture >;
 
   // The on-screen canvas
-  private readonly _canvas       : HTMLCanvasElement;
+  private readonly _canvas : HTMLCanvasElement;
 
   // Constructs a new managing environment for the provided on-screen canvas
   public constructor( canvas : HTMLCanvasElement, mod : WebAssembly.Module ) {
+    // An unique id for hard-coded scenes. (Defined in the Rust part)
+    let sceneId = 0;
+    let initialWidth  = 512;
+    let initialHeight = 512;
+
     this._canvas  = canvas;
     this._mod     = mod;
-    this._config  = new Config( );
     this._cameraController =
-      new CameraController( sceneCamera( this._config.sceneId ));
+      new CameraController( sceneCamera( sceneId ));
 
-    this._target       = new RenderTarget( this._config.width, this._config.height );
-    this._canvasElem   = new CanvasElement( canvas, this._target );
-    this._meshes       = new Map( );
-    this._textures     = new Map( );
-    this._tracer       = this._setupRaytracer( );
+    this._target     = new RenderTarget( initialWidth, initialHeight );
+    this._canvasElem = new CanvasElement( canvas, this._target );
+    this._tracer     = new BackgroundPathTracer(
+        initialWidth
+      , initialHeight
+      , sceneId
+      , this._mod
+      , this._cameraController.get( )
+      );
 
     // Initially center the target in the canvas. Make sure the canvas
     // properly remains within the screen upon size
@@ -86,26 +60,17 @@ class Global {
     this._cameraController.onUpdate( ).subscribe( c => {
       this._tracer.updateCamera( c );
     } );
+
+    this._tracer.onUpdate( ).subscribe( ( ) => {
+      this._target.update( this._tracer.buffer );
+    } );
   }
-
-  // Renders a depth-buffer if true. A diffuse-buffer otherwise
-  // public setRenderType( t : number ) {
-  //   this._config.renderType = t;
-  // }
-
-  // Updates the maximum ray-depth of the renderer
-  // public setReflectionDepth( d : number ) {
-  //   this._config.rayDepth = d;
-  //   this._raytracer.updateParams( this._config.renderType, this._config.rayDepth );
-  //   this._fpsTracker.clear( );
-  // }
 
   // Starts or stops continuous raytracing
   // When running, it will render the next frame immediately after the previous
   // one is done.
   public updateRunning( r : boolean ) {
-    this._config.isRunning = r;
-    if ( this._config.isRunning ) {
+    if ( r ) {
       this._tracer.resume( );
     } else {
       this._tracer.pause( );
@@ -116,7 +81,6 @@ class Global {
   // The `sid` refers to the id of the hard-coded scene in the raytracer source.
   public updateScene( sid : number ) {
     console.log( 'update scene', sid );
-    this._config.sceneId = sid;
     this._tracer.updateScene( sid );
 
     this._cameraController.set( sceneCamera( sid ) );
@@ -125,14 +89,9 @@ class Global {
 
   // Updates the size of the viewport of the renderer
   public updateViewport( width : number, height : number ) {
-    this._config.width  = width;
-    this._config.height = height;
-    this._target        = new RenderTarget( this._config.width, this._config.height );
+    this._target = new RenderTarget( width, height );
     this._canvasElem.updateTarget( this._target );
-
-    // Restart the raytracer
-    this._tracer.destroy( );
-    this._tracer = this._setupRaytracer( );
+    this._tracer.updateViewport( width, height );
   }
 
   // Meshes can only be loaded by JavaScript, yet they need to be passed
@@ -140,13 +99,11 @@ class Global {
   //   any current and future renders will have these meshes available
   // Note that meshes are "hardcoded" to be part of scenes (by their id)
   public storeMesh( id : number, mesh : Triangles ): void {
-    this._meshes.set( id, mesh );
     this._tracer.storeMesh( id, mesh );
   }
 
   // Stores a texture in the WASM module
   public storeTexture( id : number, texture : Texture ): void {
-    this._textures.set( id, texture );
     this._tracer.storeTexture( id, texture );
   }
 
@@ -162,28 +119,6 @@ class Global {
     this._cameraController.set( this._cameraController.get( ) );
   }
 
-  // Constructs a new raytracer with the current configuration
-  private _setupRaytracer( ): BackgroundPathTracer {
-    const c = this._config;
-
-    let tracer = new BackgroundPathTracer(
-        c.width
-      , c.height
-      , c.sceneId
-      , this._mod
-      , this._cameraController.get( )
-      );
-
-    for ( let [id, mesh] of this._meshes ) {
-      tracer.storeMesh( id, mesh );
-    }
-    for ( let [id, texture] of this._textures ) {
-      tracer.storeTexture( id, texture );
-    }
-
-    return tracer;
-  }
-
   private _onResize( ) {
     const canvas  = this._canvas;
     canvas.height = document.body.clientHeight;
@@ -196,7 +131,7 @@ class Global {
 // These are defined here
 function sceneCamera( sceneId : number ): Camera {
   if ( sceneId === 0 ) { // cubes and spheres
-    return new Camera( new Vec3( -3.7, 3.5, -0.35 ), 0.47, 0.54 );
+    return new Camera( new Vec3( -4.5, 4.2, -2.1 ), 0.12, 0.53 );
   } else if ( sceneId === 1 || sceneId == 2 ) { // bunnies
     return new Camera( new Vec3( -0.9, 5.4, 0.4 ), 0.58, 0.0 );
   } else if ( sceneId === 3 || sceneId === 4 || sceneId === 5 ) { // clouds

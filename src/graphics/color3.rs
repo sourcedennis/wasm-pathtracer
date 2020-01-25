@@ -86,6 +86,15 @@ impl ops::Mul< Color3 > for Vec3 {
   }
 }
 
+/// Elementwise multiplication of a color and a Vec3: Vec3 * Color3 = Color3
+impl ops::Div< f32 > for Color3 {
+  type Output = Color3;
+
+  fn div( self, v : f32 ) -> Color3 {
+    self * ( 1.0 / v )
+  }
+}
+
 /// Addition of the channels of two Color3's
 impl ops::Add< Color3 > for Color3 {
   type Output = Color3;

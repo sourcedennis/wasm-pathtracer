@@ -6,5 +6,5 @@ mod math;
 mod scenes;
 mod tracer;
 mod wasm_interface;
-mod marcher;
-pub mod rng;
+mod rng;
+mod render_target;

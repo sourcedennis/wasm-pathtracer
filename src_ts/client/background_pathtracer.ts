@@ -1,7 +1,8 @@
 import { Camera }    from '@s/graphics/camera';
 import { Triangles } from '@s/graphics/triangles';
 import { Texture }   from '@s/graphics/texture';
-import { MsgC2WInit, MsgC2WPause, MsgC2WResume, MsgC2WUpdateScene, MsgC2WUpdateCamera, MsgC2WStoreMesh, MsgC2WStoreTexture } from '@s/worker_messages';
+import { MsgC2WInit, MsgC2WPause, MsgC2WResume, MsgC2WUpdateViewport, MsgC2WUpdateScene, MsgC2WUpdateCamera, MsgC2WStoreMesh, MsgC2WStoreTexture } from '@s/worker_messages';
+import { Observable, XObservable } from '@s/event/observable';
 
 // Renders a scene on a background WebWorker.
 // As these computations can take place externally (e.g. in other threads)
@@ -10,12 +11,13 @@ import { MsgC2WInit, MsgC2WPause, MsgC2WResume, MsgC2WUpdateScene, MsgC2WUpdateC
 // Note that the actual path tracer is written in Rust (and defined in
 // `src`). This is just the interface to a WebWorker running that module.
 export class BackgroundPathTracer {
-  private readonly _worker  : Worker;
-
   // The continually updated result of the path tracer of the current scene.
   // scene. The result is a RGBA pixel buffer.
   // (Alpha is always 255, but this is convenient when pushing Canvas ImageData)
-  public readonly buffer : Uint8Array;
+  public           buffer : Uint8Array;
+
+  private readonly _worker   : Worker;
+  private readonly _onUpdate : XObservable< void >;
 
   public constructor( // Viewport size
                       width      : number
@@ -44,6 +46,21 @@ export class BackgroundPathTracer {
       };
     
     this._worker.postMessage( initMsg );
+
+    this._onUpdate = new XObservable( );
+
+    this._worker.addEventListener( 'message', ev => {
+      let msg = ev.data;
+      if ( msg.type === 'compute_done' ) {
+        // Notify listeners, such that the screen can be updated
+        this._onUpdate.next( );
+      }
+    } );
+  }
+
+  // Gets notified whenever the render buffer has updated
+  public onUpdate( ): Observable< void > {
+    return this._onUpdate.observable;
   }
 
   // Pauses path tracing execution
@@ -71,8 +88,16 @@ export class BackgroundPathTracer {
     this._worker.postMessage( msg );
   }
 
+  // Updates the viewport
+  public updateViewport( width : number, height : number ): void {
+    let buffer  = new SharedArrayBuffer( width * height * 4 );
+    this.buffer = new Uint8Array( buffer );
+
+    let msg : MsgC2WUpdateViewport = { type: 'update_viewport', width, height, buffer };
+    this._worker.postMessage( msg );
+  }
+
   // Updates the camera
-  // Affects *following* render calls (so not any currently active calls)
   // It *first* rotates around the x-axis, and then the y-axis. And then translation is applied
   public updateCamera( camera : Camera ): void {
     let msg : MsgC2WUpdateCamera = { type: 'update_camera', camera };

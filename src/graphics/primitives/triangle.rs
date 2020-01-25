@@ -63,38 +63,105 @@ impl Bounded for Triangle {
   }
 }
 
+fn triangle_area( p0 : Vec3, p1 : Vec3, p2 : Vec3 ) -> f32 {
+  // Heron's formula
+  let a = p0.dis( p1 );
+  let b = p1.dis( p2 );
+  let c = p2.dis( p0 );
+
+  let s = ( a + b + c ) * 0.5;
+  ( s * ( s - a ) * ( s - b ) * ( s - c ) ).sqrt( )
+}
+
 impl Tracable for Triangle {
   fn is_emissive( &self ) -> bool {
     self.mat.is_emissive( )
   }
   
-  fn project_area_sphere( &self, p : &Vec3 ) -> f32 {
-    // Project the triangle on the hemisphere of p
-    let p0 = ( *p - self.v0 ).normalize( );
-    let p1 = ( *p - self.v1 ).normalize( );
-    let p2 = ( *p - self.v2 ).normalize( );
+  // /// The point `p` with its normal `p_normal` represent a hemisphere
+  // /// This functions returns the surface area of this triangle on that
+  // /// hemisphere. This can never be more than `2*PI`
+  // fn solid_hemi_angle( &self, p : &Vec3, p_normal : &Vec3 ) -> f32 {
+  //   // Project the triangle on the hemisphere of p
+  //   let p0 = ( *p - self.v0 ).normalize( );
+  //   let p1 = ( *p - self.v1 ).normalize( );
+  //   let p2 = ( *p - self.v2 ).normalize( );
 
-    // Heron's formula
-    // This introduces a bias, but apparently that is acceptable
-    let a = p0.dis( p1 );
-    let b = p1.dis( p2 );
-    let c = p2.dis( p0 );
+  //   let is_p0_above = p0.dot( *p_normal ) > 0.0;
+  //   let is_p1_above = p1.dot( *p_normal ) > 0.0;
+  //   let is_p2_above = p2.dot( *p_normal ) > 0.0;
 
-    let s = ( a + b + c ) * 0.5;
-    ( s * ( s - a ) * ( s - b ) * ( s - c ) ).sqrt( )
+  //   if is_p0_above && is_p1_above && is_p2_above {
+  //     triangle_area( p0, p1, p2 )
+  //   } else if !is_p0_above && !is_p1_above && !is_p2_above {
+  //     0.0
+  //   } else {
+  //     // Some of these points are *below* the hemisphere
+  //     let num_above = is_p0_above as u32 + is_p1_above as u32 + is_p2_above as u32;
+  //     let n = p_normal;
+
+  //     if num_above == 2 {
+  //       // These are above
+  //       let p = if is_p0_above { p0 } else { p1 };
+  //       let s = if is_p2_above { p2 } else { p1 };
+  //       // This is below
+  //       let q  = if !is_p0_above { p0 } else if !is_p1_above { p1 } else { p2 };
+
+  //       // Intersections with the hemisphere base
+  //       let b0 = q - ( n.dot( q ) / n.dot( p - q ) ) * ( p - q );
+  //       let b1 = q - ( n.dot( q ) / n.dot( s - q ) ) * ( s - q );
+  //       triangle_area( p, b0, b1 ) + triangle_area( b1, p, s )
+  //     } else { // 1
+  //       // These are below
+  //       let p = if !is_p0_above { p0 } else { p1 };
+  //       let s = if !is_p2_above { p2 } else { p1 };
+  //       // This is above
+  //       let q  = if is_p0_above { p0 } else if is_p1_above { p1 } else { p2 };
+        
+  //       // Intersections with the hemisphere base
+  //       let b0 = q - ( n.dot( q ) / n.dot( p - q ) ) * ( p - q );
+  //       let b1 = q - ( n.dot( q ) / n.dot( s - q ) ) * ( s - q );
+        
+  //       triangle_area( q, b0, b1 )
+  //     }
+  //   }
+  // }
+
+  fn surface_area( &self ) -> f32 {
+    triangle_area( self.v0, self.v1, self.v2 )
   }
 
-  fn pick_random( &self, rng : &mut Rng, p : &Vec3 ) -> Vec3 {
-    let p0 = ( *p - self.v0 ).normalize( );
-    let p1 = ( *p - self.v1 ).normalize( );
-    let p2 = ( *p - self.v2 ).normalize( );
+  fn pick_random( &self, rng : &mut Rng ) -> (Vec3, Vec3, Vec3) {
+    // let v0 = self.v0.normalize( );
+    // let v1 = self.v1.normalize( );
+    // let v2 = self.v2.normalize( );
 
-    let u = rng.next( );
-    let v = rng.next( ) * ( 1.0 - u );
+    // let u = rng.next( );
+    // let v = rng.next( ) * ( 1.0 - u );
 
-    let sphere_hit = ( 1.0 - u - v ) * p0 + u * p1 + v * p2;
+    // let p_hit = ( 1.0 - u - v ) * v0 + u * v1 + v * v2;
 
-    ( sphere_hit - *p ).normalize( )
+    let v0 = self.v0;
+    let v1 = self.v1;
+    let v2 = self.v2;
+
+    // https://math.stackexchange.com/questions/18686/uniform-random-point-in-triangle
+    let r1 = rng.next( );
+    let r2 = rng.next( );
+    let r1_sqrt = r1.sqrt( );
+
+    let p_hit = ( 1.0 - r1_sqrt ) * v0 + ( r1_sqrt * ( 1.0 - r2 ) ) * v1 + ( r2 * r1_sqrt ) * v2;
+
+    let mut n = ( v1 - v0 ).cross( v2 - v0 ).normalize( );
+
+    if rng.next( ) > 0.5 {
+      n = -n;
+    }
+
+    match self.mat {
+      Material::Emissive { intensity } => (p_hit, n, intensity),
+      _ => (Vec3::ZERO, Vec3::ZERO, Vec3::ZERO) // anic!( "Non-emissive light" )
+    }
   }
   
   fn trace( &self, ray: &Ray ) -> Option< Hit > {

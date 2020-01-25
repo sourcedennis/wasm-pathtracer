@@ -2,8 +2,8 @@
 use std::f32::consts::PI;
 // Local imports
 use crate::math::{Vec2, Vec3};
-use crate::graphics::{Color3, Material, PointMaterial, AABB};
-use crate::graphics::ray::{Ray, Tracable, Bounded, Marchable, Hit};
+use crate::graphics::{Material, AABB};
+use crate::graphics::ray::{Ray, Tracable, Bounded, Hit};
 use crate::rng::Rng;
 
 /// A Sphere primitive
@@ -38,16 +38,12 @@ impl Bounded for Sphere {
 // If the ray's origin is inside the sphere, the resulting normal
 // also points otherwise. Otherwise the normal points outward.
 impl Tracable for Sphere {
-  fn is_emissive( &self ) -> bool {
-    self.mat.is_emissive( )
+  fn pick_random( &self, rng : &mut Rng ) -> (Vec3, Vec3, Vec3) {
+    panic!( "Not implemented" );
   }
   
-  fn project_area_sphere( &self, p : &Vec3 ) -> f32 {
-    panic!( "PROJECT SHERE HEMISPHERE" );
-  }
-
-  fn pick_random( &self, rng : &mut Rng, p : &Vec3 ) -> (Vec3, Vec3) {
-    panic!( "PICK RANDOM SPHERE" );
+  fn is_emissive( &self ) -> bool {
+    self.mat.is_emissive( )
   }
   
   fn trace( &self, ray : &Ray ) -> Option< Hit > {
@@ -131,25 +127,5 @@ impl Tracable for Sphere {
     }
 
     Some( t )
-  }
-}
-
-impl Marchable for Sphere {
-  fn sdf( &self, p : &Vec3 ) -> f32 {
-    let p2 = *p - self.location;
-    p2.len( ) - self.radius
-  }
-
-  fn color( &self, _p : &Vec3 ) -> Color3 {
-    if let Some( m ) = self.mat.evaluate_simple( ) {
-      match m {
-        PointMaterial::Reflect { color, .. } => {
-          color
-        }
-        _ => Color3::BLACK
-      }
-    } else {
-      Color3::BLACK
-    }
   }
 }

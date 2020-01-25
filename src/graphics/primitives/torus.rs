@@ -5,6 +5,7 @@ use crate::math::{Vec2, Vec3};
 use crate::graphics::Material;
 use crate::graphics::ray::{Ray, Tracable, Bounded, Hit};
 use crate::graphics::AABB;
+use crate::rng::Rng;
 
 // A torus that lies flat; that is, its gap lies in the x/z-plane
 #[derive(Debug, Clone)]
@@ -49,6 +50,10 @@ impl Bounded for Torus {
 }
 
 impl Tracable for Torus {
+  fn pick_random( &self, rng : &mut Rng ) -> (Vec3, Vec3, Vec3) {
+    panic!( "Not implemented" );
+  }
+
   fn is_emissive( &self ) -> bool {
     self.mat.is_emissive( )
   }

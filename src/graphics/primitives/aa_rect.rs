@@ -2,6 +2,7 @@ use crate::math::{Vec2, Vec3};
 use crate::graphics::Material;
 use crate::graphics::ray::{Ray, Tracable, Bounded, Hit};
 use crate::graphics::AABB;
+use crate::rng::Rng;
 
 /// An axis-aligned box
 #[derive(Debug, Clone)]
@@ -60,6 +61,10 @@ impl Bounded for AARect {
 }
 
 impl Tracable for AARect {
+  fn pick_random( &self, rng : &mut Rng ) -> (Vec3, Vec3, Vec3) {
+    panic!( "Not implemented" );
+  }
+
   fn is_emissive( &self ) -> bool {
     self.mat.is_emissive( )
   }

@@ -25,6 +25,14 @@ export interface MsgC2WUpdateCamera extends Msg {
   camera : Camera
 }
 
+export interface MsgC2WUpdateViewport extends Msg {
+  type   : 'update_viewport',
+  width  : number,
+  height : number,
+  // The new shared pixel buffer
+  buffer : SharedArrayBuffer
+}
+
 export interface MsgC2WUpdateScene extends Msg {
   type    : 'update_scene',
   sceneId : number

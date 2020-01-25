@@ -13,7 +13,7 @@ mod bvh4;
 
 pub use color3::Color3;
 pub use material::{Material, PointMaterial};
-pub use scene::{Scene, LightHit, LightEnum};
+pub use scene::{Scene, LightEnum};
 pub use mesh::{Mesh};
 pub use texture::{Texture};
 pub use aabb::{AABB, AABBx4};
