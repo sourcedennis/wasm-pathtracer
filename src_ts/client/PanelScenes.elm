@@ -20,13 +20,8 @@ type alias Model = Scene
 
 -- Identifiers for the hard-coded scenes
 type Scene
-  = SceneAirHole
-  | SceneBunnyLow
-  | SceneBunnyHigh
-  | SceneCloud100
-  | SceneCloud10k
-  | SceneCloud100k
-  | SceneMarch
+  = SceneLights
+  | SceneBunny
 
 type Msg
   = SelectScene Scene
@@ -44,19 +39,14 @@ main =
 sceneId : Scene -> Int
 sceneId s =
   case s of
-    SceneAirHole   -> 0
-    SceneBunnyLow  -> 1
-    SceneBunnyHigh -> 2
-    SceneCloud100  -> 3
-    SceneCloud10k  -> 4
-    SceneCloud100k -> 5
-    SceneMarch     -> 6
+    SceneLights -> 0
+    SceneBunny  -> 2
 
 subscriptions : Model -> Sub Msg
 subscriptions _ = Sub.none
 
 init : Model
-init = SceneAirHole
+init = SceneLights
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg _ =
@@ -69,14 +59,9 @@ view m =
   div [ class "sidepanel", id "scenepanel" ]
     [ h2 [] [ text "Scene" ]
     , hr [ style "width" "100%" ] []
-    , div [ style "overflow-y" "scroll", style "width" "225pt" ]
-        [ sceneC (m == SceneAirHole)   (SelectScene SceneAirHole)   "Air Hole"     "images/banners/air_hole.png"
-        , sceneC (m == SceneBunnyLow)  (SelectScene SceneBunnyLow)  "Bunny Low Poly (~5k)" "images/banners/bunny_low.png"
-        , sceneC (m == SceneBunnyHigh) (SelectScene SceneBunnyHigh) "Bunny High Poly(~144k)" "images/banners/bunny_high.png"
-        , sceneC (m == SceneCloud100)  (SelectScene SceneCloud100)  "Cloud 100"    "images/banners/cloud100.png"
-        , sceneC (m == SceneCloud10k)  (SelectScene SceneCloud10k)  "Cloud 10k"    "images/banners/cloud10k.png"
-        , sceneC (m == SceneCloud100k) (SelectScene SceneCloud100k) "Cloud 100k"   "images/banners/cloud100k.png"
-        , sceneC (m == SceneMarch)     (SelectScene SceneMarch)     "Ray March"    "images/banners/march.png"
+    , div [ style "overflow-y" "auto", style "overflow-x" "hidden", style "width" "225pt" ]
+        [ sceneC (m == SceneLights) (SelectScene SceneLights) "Many Lights"  "images/banners/air_hole.png"
+        , sceneC (m == SceneBunny)  (SelectScene SceneBunny)  "Bunny"        "images/banners/bunny_high.png"
         ]
     ]
 

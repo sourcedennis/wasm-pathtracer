@@ -48,13 +48,13 @@ impl AABB {
     AABB { x_min, y_min, z_min, x_max, y_max, z_max }
   }
 
-  // pub fn area( &self ) -> f32 {
-  //   let x_size : f32 = self.x_max - self.x_min;
-  //   let y_size : f32 = self.y_max - self.y_min;
-  //   let z_size : f32 = self.z_max - self.z_min;
+  pub fn area( &self ) -> f32 {
+    let x_size : f32 = self.x_max - self.x_min;
+    let y_size : f32 = self.y_max - self.y_min;
+    let z_size : f32 = self.z_max - self.z_min;
 
-  //   x_size * y_size * z_size
-  // }
+    x_size * y_size * z_size
+  }
 
   /// Returns the surface of the AABB
   pub fn surface( &self ) -> f32 {
@@ -105,6 +105,12 @@ impl AABB {
       && o.x_max <= self.x_max
       && o.y_max <= self.y_max
       && o.z_max <= self.z_max
+  }
+
+  /// True if this box contains the point
+  pub fn contains_point( &self, o : &Vec3 ) -> bool {
+    self.x_min <= o.x && self.y_min <= o.y && self.z_min <= o.z &&
+      self.x_max >= o.x && self.y_max >= o.y && self.z_max >= o.z
   }
 
   /// Intersects the ray with the box. If it intersects, the minimum positive
@@ -177,6 +183,18 @@ impl AABB {
     } else { // Box behind camera
       None
     }
+  }
+
+  pub fn include( self, v : Vec3 ) -> AABB {
+    let x_min = self.x_min.min( v.x );
+    let y_min = self.y_min.min( v.y );
+    let z_min = self.z_min.min( v.z );
+    
+    let x_max = self.x_max.max( v.x );
+    let y_max = self.y_max.max( v.y );
+    let z_max = self.z_max.max( v.z );
+
+    AABB::new1( x_min, y_min, z_min, x_max, y_max, z_max )
   }
 }
 

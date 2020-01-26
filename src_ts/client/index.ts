@@ -58,6 +58,7 @@ class Global {
     window.addEventListener( 'resize', ev => this._onResize( ) );
 
     this._cameraController.onUpdate( ).subscribe( c => {
+      console.log( c );
       this._tracer.updateCamera( c );
     } );
 
@@ -131,13 +132,10 @@ class Global {
 // These are defined here
 function sceneCamera( sceneId : number ): Camera {
   if ( sceneId === 0 ) { // cubes and spheres
-    return new Camera( new Vec3( -4.5, 4.2, -2.1 ), 0.12, 0.53 );
+    //return new Camera( new Vec3( 0, 6.6, -6.2 ), 0.69, 0 );
+    return new Camera( new Vec3( 0, 16.34, -23.76 ), 0.54, 0 );
   } else if ( sceneId === 1 || sceneId == 2 ) { // bunnies
     return new Camera( new Vec3( -0.9, 5.4, 0.4 ), 0.58, 0.0 );
-  } else if ( sceneId === 3 || sceneId === 4 || sceneId === 5 ) { // clouds
-    return new Camera( new Vec3( 0.0, 4.8, 2.6 ), 0.97, 0.0 );
-  } else if ( sceneId === 6 ) { // marching
-    return new Camera( new Vec3( 2.08, 1.29, 8.21 ), 0.39, -0.90 );
   } else {
     throw new Error( 'No Scene' );
   }

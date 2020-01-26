@@ -5,16 +5,16 @@ use std::rc::Rc;
 use std::cell::RefCell;
 // Local imports
 use crate::graphics::{Scene};
-use crate::graphics::ray::{Ray, Tracable};
+use crate::graphics::ray::{Tracable};
 use crate::graphics::primitives::{Triangle};
 use crate::graphics::{Mesh, Texture, Color3};
 use crate::math::{Vec3};
-use crate::scenes::{setup_scene_cubesphere, setup_scene_bunny_low, setup_scene_bunny_high,
-  setup_scene_cloud100, setup_scene_cloud10k, setup_scene_cloud100k};
+use crate::scenes::{setup_scene_museum, setup_scene_bunny_high};
 use crate::tracer::{RenderInstance, RenderType, Camera};
 use crate::graphics::{Material};
 use crate::rng::Rng;
 use crate::render_target::RenderTarget;
+use crate::graphics::{RandomSamplingStrategy, AdaptiveSamplingStrategy};
 
 // This file contains all the functions that are exposed through WebAssembly
 // Interfacing with JavaScript is a bit annoying, as only primitives (i32, i64, f32, f64)
@@ -24,32 +24,13 @@ use crate::render_target::RenderTarget;
 // with only primitives.
 
 // The intuition about the tracing work is as follows:
-// * This instance is initialised with session information (viewport, camera, ray depth, etc.)
+// * This instance is initialised with session information (viewport, camera, etc.)
 // * This instance is *assigned* (by JavaScript) the pixels for which it should trace rays
 //     (Thus JavaScript can spawn multiple webworkers - each with their own rays to compute)
 // * The `compute` method is called, which traces the rays for all assigned pixels
 //
 // General notes:
 // * Z points INTO the screen. -Z points to the eye
-
-/// The "render type". This is the "type" of visuals that are displayed on the
-/// screen.
-// enum RenderType {
-//   RenderColor, RenderDepth, RenderBVH
-// }
-
-// impl RenderType {
-//   /// Converts a "magic number" representing the type (obtained externally) into
-//   /// the proper `RenderType` element.
-//   fn from( u : u32 ) -> RenderType {
-//     match u {
-//       0 => RenderType::RenderColor,
-//       1 => RenderType::RenderDepth,
-//       2 => RenderType::RenderBVH,
-//       _ => RenderType::RenderColor
-//     }
-//   }
-// }
 
 /// The state of a rendering session
 ///   (Sessions change upon framebuffer resize)
@@ -63,7 +44,7 @@ struct Config {
   target          : Rc< RefCell< RenderTarget > >,
   //render_type     : RenderType,
   scene_id        : u32,
-  scene           : Rc< RefCell< Scene > >,
+  scene           : Rc< Scene >,
   camera          : Rc< RefCell< Camera > >,
 
   left_instance   : RenderInstance,
@@ -84,51 +65,42 @@ pub fn init( width : u32, height : u32, scene_id : u32, render_type : u32
     // Here is quite some code duplication, but this is hard to avoid as global state needs
     // to remain preserved. Doing this otherwise causes Rust to allocate a copy of this global
     // state, which is too expensive. (It contains all triangle meshes)
+    
+    if !CONFIG.is_none( ) {
+      panic!( "Cannot init again" );
+    }
 
     let left_width = ( width / 2 ) as usize;
 
-    if let Some( ref mut conf ) = CONFIG {
-      let scene            = Rc::new( RefCell::new( select_scene( scene_id, &conf.meshes, &conf.textures ) ) );
-      let camera           = Rc::new( RefCell::new( Camera::new( Vec3::new( cam_x, cam_y, cam_z ), cam_rot_x, cam_rot_y ) ) );
-      let target           = Rc::new( RefCell::new( RenderTarget::new( width as usize, height as usize ) ) );
+    let camera           = Rc::new( RefCell::new( Camera::new( Vec3::new( cam_x, cam_y, cam_z ), cam_rot_x, cam_rot_y ) ) );
+    let target           = Rc::new( RefCell::new( RenderTarget::new( width as usize, height as usize ) ) );
+    
+    let meshes   = HashMap::new( );
+    let textures = HashMap::new( );
+    let scene    = Rc::new( select_scene( scene_id, &meshes, &textures ) );
+    let rng      = Rc::new( RefCell::new( Rng::new( ) ) );
 
-      // Preserve global state
+    let left_sampling  = Box::new( RandomSamplingStrategy::new( 0, 0, left_width, height as usize, rng.clone( ) ) );
+    let right_sampling = Box::new( AdaptiveSamplingStrategy::new( left_width, 0, width as usize - left_width, height as usize, target.clone( ), rng.clone( ) ) );
+
+    let left_instance  = RenderInstance::new( scene.clone( ), camera.clone( ), rng.clone( ), left_sampling,  target.clone( ), RenderType::NormalNEE );
+    let right_instance = RenderInstance::new( scene.clone( ), camera.clone( ), rng.clone( ), right_sampling, target.clone( ), RenderType::NormalNEE );
+
+    CONFIG = Some( Config {
+      // ## Global State
+      meshes
+    , textures
+    , rng:              rng.clone( )
+
       // ## Session State
-      conf.target          = target.clone( );
-      //conf.render_type     = RenderType::from( render_type );
-      conf.scene_id        = scene_id;
-      conf.scene           = scene;
-      conf.camera          = camera;
-      conf.left_instance   = RenderInstance::new( conf.scene.clone( ), conf.camera.clone( ), conf.rng.clone( ), 0, 0, left_width, height as usize, target.clone( ), RenderType::Adaptive );
-      conf.right_instance  = RenderInstance::new( conf.scene.clone( ), conf.camera.clone( ), conf.rng.clone( ), left_width, 0, width as usize - left_width, height as usize, target, RenderType::NormalNEE );
-    } else {
-      let meshes   = HashMap::new( );
-      let textures = HashMap::new( );
-      let scene    = Rc::new( RefCell::new( select_scene( scene_id, &meshes, &textures ) ) );
-      let camera   = Rc::new( RefCell::new( Camera::new( Vec3::new( cam_x, cam_y, cam_z ), cam_rot_x, cam_rot_y ) ) );
-      let target   = Rc::new( RefCell::new( RenderTarget::new( width as usize, height as usize ) ) );
-      let rng      = Rc::new( RefCell::new( Rng::new( ) ) );
+    , target
+    , scene_id
+    , scene:            scene.clone( )
+    , camera
 
-      let left_instance  = RenderInstance::new( scene.clone( ), camera.clone( ), rng.clone( ), 0, 0, left_width, height as usize, target.clone( ), RenderType::Adaptive );
-      let right_instance = RenderInstance::new( scene.clone( ), camera.clone( ), rng.clone( ), left_width, 0, width as usize - left_width, height as usize, target.clone( ), RenderType::NormalNEE );
-
-      CONFIG = Some( Config {
-        // ## Global State
-        meshes
-      , textures
-      , rng:              rng.clone( )
-
-        // ## Session State
-      //, render_type:      RenderType::from( render_type )
-      , target
-      , scene_id
-      , scene:            scene.clone( )
-      , camera
-
-      , left_instance
-      , right_instance
-      } );
-    };
+    , left_instance
+    , right_instance
+    } );
   }
 }
 
@@ -160,21 +132,6 @@ pub fn reset( ) {
   }
 }
 
-/// Updates the rendering session with new parameters
-/// Other aspects of the session remain the same
-// #[wasm_bindgen]
-// #[allow(dead_code)]
-// pub fn update_params( render_type : u32, max_ray_depth : u32 ) {
-//   unsafe {
-//     if let Some( ref mut conf ) = CONFIG {
-//       conf.render_type   = RenderType::from( render_type );
-//       conf.mat_stack     = DefaultStack::new1( ( max_ray_depth + 1 ) as usize, MatRefract::AIR );
-//     } else {
-//       panic!( "init not called" )
-//     }
-//   }
-// }
-
 /// Updates the rendered scene
 /// Other aspects of the session remain the same
 #[wasm_bindgen]
@@ -182,9 +139,12 @@ pub fn reset( ) {
 pub fn update_scene( scene_id : u32 ) {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
-      conf.scene_id             = scene_id;
-      *conf.scene.borrow_mut( ) = select_scene( scene_id, &conf.meshes, &conf.textures );
-      reset( );
+      conf.scene_id = scene_id;
+      conf.scene    = Rc::new( select_scene( scene_id, &conf.meshes, &conf.textures ) );
+      conf.target.borrow_mut( ).clear( );
+
+      conf.left_instance.update_scene( conf.scene.clone( ) );
+      conf.right_instance.update_scene( conf.scene.clone( ) );
     } else {
       panic!( "init not called" )
     }
@@ -294,8 +254,7 @@ pub fn notify_mesh_loaded( id : u32 ) -> bool {
       if ( id == 0 && conf.scene_id == 1 ) ||
          ( id == 1 && conf.scene_id == 2 ) ||
          ( id == 2 && conf.scene_id == 3 ) {
-        *conf.scene.borrow_mut( ) = select_scene( conf.scene_id, &conf.meshes, &conf.textures );
-        reset( );
+        update_scene( conf.scene_id );
         true
       } else {
         false
@@ -369,13 +328,8 @@ fn select_scene( id       : u32
                , _textures : &HashMap< u32, Texture >
                ) -> Scene {
   match id {
-    0 => setup_scene_cubesphere( ),
-    1 => setup_scene_bunny_low( meshes ),
+    0 => setup_scene_museum( ),
     2 => setup_scene_bunny_high( meshes ),
-    3 => setup_scene_cloud100( meshes ),
-    4 => setup_scene_cloud10k( meshes ),
-    5 => setup_scene_cloud100k( meshes ),
-    6 => setup_scene_cubesphere( ),
     _ => panic!( "Invalid scene" )
   }
 }

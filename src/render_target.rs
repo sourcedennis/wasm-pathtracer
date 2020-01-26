@@ -10,12 +10,14 @@ pub struct RenderTarget {
   result              : Vec< u8 >
 }
 
+/// A 3x3 Gaussian filter (should be divided by 16)
 static GAUSS3: [f32; 9] =
   [ 1.0, 2.0, 1.0
   , 2.0, 4.0, 2.0
   , 1.0, 2.0, 1.0
   ];
   
+/// A 5x5 Gaussian filter (should be divided by 256)
 static GAUSS5: [f32; 25] =
   [ 1.0,  4.0,  6.0,  4.0, 1.0
   , 4.0, 16.0, 24.0, 16.0, 4.0
@@ -25,6 +27,7 @@ static GAUSS5: [f32; 25] =
   ];
 
 impl RenderTarget {
+  /// Constructs a new render target with the given viewport size
   pub fn new( viewport_width : usize, viewport_height : usize ) -> RenderTarget {
     let acc_buffer = vec![ Vec3::ZERO; viewport_width * viewport_height ];
     let acc_count  = vec![ 0; viewport_width * viewport_height ];
@@ -37,6 +40,7 @@ impl RenderTarget {
     RenderTarget { viewport_width, viewport_height, acc_buffer, acc_count, result }
   }
 
+  /// Clears the render target
   pub fn clear( &mut self ) {
     for i in 0..(self.viewport_width * self.viewport_height) {
       self.acc_buffer[ i ] = Vec3::ZERO;
@@ -47,6 +51,7 @@ impl RenderTarget {
     }
   }
 
+  /// Writes the given value *for a single sample* to the target
   pub fn write( &mut self, x : usize, y : usize, v : Vec3 ) {
     let i = self.viewport_width * y + x;
     self.acc_buffer[ i ] += v;
@@ -59,11 +64,13 @@ impl RenderTarget {
     self.result[ i * 4 + 2 ] = ( ( v.z / count as f32 ).min( 1.0 ).max( 0.0 ) * 255.0 ) as u8;
   }
 
+  /// Reads the averaged value (over all samples) for the given pixel
   pub fn read( &self, x : usize, y : usize ) -> Vec3 {
     let i = self.viewport_width * y + x;
     self.acc_buffer[ i ] / self.acc_count[ i ] as f32
   }
 
+  /// Returns a reference to the averaged pixel buffer
   pub fn results< 'a >( &'a self ) -> &'a Vec< u8 > {
     &self.result
   }
@@ -114,6 +121,8 @@ impl RenderTarget {
     acc / sum
   }
 
+  // A helper function. Tries to multiply the value at pixel (x,y) with the
+  // given multiplier.
   fn read_mul( &self, x : i32, y : i32, mul : f32 ) -> (f32, Vec3) {
     if x < 0 || y < 0 || x >= self.viewport_width as i32 || y >= self.viewport_height as i32 {
       ( 0.0, Vec3::ZERO )
