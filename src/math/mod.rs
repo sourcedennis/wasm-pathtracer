@@ -1,10 +1,10 @@
 mod vec2;
 mod vec3;
-mod empiral_pdf;
+mod empirical_pdf;
 
 pub use vec2::Vec2;
 pub use vec3::Vec3;
-pub use empiral_pdf::EmpiralPDF;
+pub use empirical_pdf::EmpiricalPDF;
 
 // Some arbitrary math utilities
 

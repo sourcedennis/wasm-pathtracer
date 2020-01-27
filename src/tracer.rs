@@ -1,6 +1,7 @@
 //use crate::data::stack::DefaultStack;
 use crate::graphics::{Color3, PointMaterial, Scene, LightEnum};
 use crate::graphics::ray::{Ray};
+use crate::graphics::{AABB};
 use crate::math::{EPSILON, Vec3};
 use crate::math;
 use crate::rng::Rng;
@@ -42,7 +43,10 @@ pub struct RenderInstance {
   num_bvh_hits : usize,
   target       : Rc< RefCell< RenderTarget > >,
 
-  sampling_strategy : Box< dyn SamplingStrategy >
+  sampling_strategy : Box< dyn SamplingStrategy >,
+
+  photons     : PhotonTree,
+  num_photons : usize
 }
 
 type ShapeId = usize;
@@ -55,11 +59,12 @@ impl RenderInstance {
             , target            : Rc< RefCell< RenderTarget > >
             , option            : RenderType
             ) -> RenderInstance {
+    let num_lights = scene.lights.len( );
     let mut ins = RenderInstance {
         option, camera, scene, rng, num_bvh_hits: 0, target
       , sampling_strategy
-      // , photons:            PhotonTree::new( )
-      // , num_photons:        0
+      , photons:            PhotonTree::new( num_lights )
+      , num_photons:        0
       };
     ins.reset( );
     ins
@@ -79,48 +84,56 @@ impl RenderInstance {
   }
 
   pub fn update_scene( &mut self, scene : Rc< Scene > ) {
-    self.scene = scene;
+    self.num_photons = 0;
+    self.photons     = PhotonTree::new( scene.lights.len( ) );
+    self.scene       = scene;
   }
 
   pub fn compute( &mut self, num_ticks : usize ) {
-    // if self.option == RenderType::PNEE && self.num_photons < self.width * self.height * 8 {
-    //   let num_to_compute = ( self.width * self.height * 8 - self.num_photons ); //.min( num_ticks * 2 );
-    //   self.preprocess_photons( num_to_compute );
-    //   self.num_photons += num_to_compute;
+    let total_photons_needed = 200000;
 
-    //   if num_ticks * 2 > num_to_compute {
-    //     self.compute_rays( num_ticks - num_to_compute / 2 );
-    //   }
-    // } else {
-    //   self.compute_rays( num_ticks );
-    // }
-    self.compute_rays( num_ticks );
+    if self.option == RenderType::PNEE && self.num_photons < total_photons_needed {
+      let num_to_compute = ( total_photons_needed - self.num_photons ).min( num_ticks * 32 );
+      self.preprocess_photons( num_to_compute );
+      self.num_photons += num_to_compute;
+
+      if num_ticks * 32 > num_to_compute {
+        self.compute_rays( num_ticks - num_to_compute / 32 );
+      }
+    } else {
+      self.compute_rays( num_ticks );
+    }
   }
 
-  // fn preprocess_photons( &mut self, num_ticks : usize ) {
-  //   let mut rng = self.rng.borrow_mut( );
-  //   let scene = self.scene.borrow( );
+  fn preprocess_photons( &mut self, num_ticks : usize ) {
+    let mut rng = self.rng.borrow_mut( );
+    let scene   = &self.scene;
 
-  //   for _i in 0..num_ticks {
-  //     let light_id = rng.next_in_range( 0, scene.lights.len( ) );
-  //     match &scene.lights[ light_id ] {
-  //       LightEnum::Point( _ ) => panic!( "Pointlight unsupported" ),
-  //       LightEnum::Area( shape_id ) => {
-  //         let light_shape = &scene.shapes[ *shape_id ];
-  //         let (point_on_light, light_normal, intensity) = light_shape.pick_random( &mut rng );
-  //         let ray = Ray::new( point_on_light + light_normal * EPSILON, light_normal );
-  //         let (num_bvh_hits, m_hit) = scene.trace( &ray );
-  //         self.num_bvh_hits += num_bvh_hits;
-
-  //         if let Some( hit ) = m_hit {
-  //           if hit.mat.is_diffuse( ) {
-  //             self.photons.insert( ray.at( hit.distance ), intensity.x.max( intensity.y ).max( intensity.y ), light_id );
-  //           }
-  //         }
-  //       }
-  //     }
-  //   }
-  // }
+    if let Some( b ) = self.scene.scene_bounds( ) {
+      for _i in 0..num_ticks {
+        let light_id = rng.next_in_range( 0, scene.lights.len( ) );
+        match &scene.lights[ light_id ] {
+          LightEnum::Point( _ ) => panic!( "Pointlight unsupported" ),
+          LightEnum::Area( shape_id ) => {
+            let light_shape = &scene.shapes[ *shape_id ];
+            let (point_on_light, ln, intensity) = light_shape.pick_random( &mut rng );
+            let light_normal = rng.next_hemisphere( &ln );
+            let ray = Ray::new( point_on_light + light_normal * EPSILON, light_normal );
+            let (num_bvh_hits, m_hit) = scene.trace( &ray );
+            self.num_bvh_hits += num_bvh_hits;
+  
+            if let Some( hit ) = m_hit {
+              let photon_hitpoint = ray.at( hit.distance ) + hit.normal * EPSILON;
+              if hit.mat.is_diffuse( ) {
+                self.photons.insert( light_id, photon_hitpoint, ln.dot( light_normal ) * intensity.x.max( intensity.y ).max( intensity.z ) );
+                self.num_photons += 1;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 
   fn compute_rays( &mut self, num_ticks : usize ) {
     let origin;
@@ -221,10 +234,8 @@ impl RenderInstance {
             let wo = -ray.dir;
             // A random next direction, with the probability of picking that direction
             let (wi, pdf) = hit.mat.sample_hemisphere( &mut rng, &wo, &hit.normal );
-            //let pdf = hit.mat.pdf( &hit.normal, &wo, &wi );
-            //let (wi, pdf) = self.sample_hemisphere( &mut (*self.rng.borrow_mut( )), &wo, &hit.normal );
             // The contribution of the path
-            let brdf = hit.mat.brdf( &hit.normal, &wo, &wi ); //brdf( hit.normal, wo, wi );
+            let brdf = hit.mat.brdf( &hit.normal, &wo, &wi );
             let cos_i = wi.dot( hit.normal ); // Geometry term
             throughput = throughput * brdf.to_vec3( ) * cos_i / pdf;
             ray = Ray::new( hit_point + wi * EPSILON, wi );
@@ -236,23 +247,9 @@ impl RenderInstance {
 
               let (light_id, light_chance) =
                 if self.option == RenderType::PNEE {
-                  // let mut cdf = Vec::with_capacity( scene.lights.len( ) );
-                  // self.photons.query_cdf( &mut cdf, &hit_point );
-
-                  // if cdf.len( ) == 0 {
-                  //   let num_lights = scene.lights.len( );
-                  //   ( rng.next_in_range( 0, num_lights ), ( 1.0 / num_lights as f32) )
-                  // } else {
-                  //   let light_id = lookup_cdf( &cdf, rng.next( ) );
-                  //   let light_chance =
-                  //     if light_id == 0 {
-                  //       cdf[ light_id ].1
-                  //     } else {
-                  //       cdf[ light_id ].1 - cdf[ light_id - 1 ].1
-                  //     };
-                  //   (light_id, light_chance )
-                  // }
-                  panic!( "PNEE not supported" );
+                  self.photons.sample( &mut rng, hit_point )
+                  // let num_lights = scene.lights.len( );
+                  // (rng.next_in_range( 0, num_lights ), 1.0 / num_lights as f32)
                 } else {
                   let num_lights = scene.lights.len( );
                   (rng.next_in_range( 0, num_lights ), 1.0 / num_lights as f32)
@@ -281,8 +278,12 @@ impl RenderInstance {
                       let solid_angle = ( light_shape.surface_area( ) * cos_o ) / dis_sq;
 
                       color += throughput * intensity * solid_angle * cos_i * ( 1.0 / light_chance );
+                      //color += throughput * intensity;
                     }
                   }
+                  // if light_id == 0 || light_id == 1 {
+                  //   color += throughput * intensity;
+                  // }
                 }
               }
             }
@@ -302,26 +303,5 @@ impl RenderInstance {
         return color;
       }
     }
-  }
-}
-
-fn lookup_cdf< 'a, T >( cdf : &'a [(T, f32)], r : f32 ) -> usize {
-  // let low = 0;
-  // let high = cdf.len( );
-
-  // while low + 1 < high {
-  //   let mid = ( low + high ) / 2;
-  //   if cdf
-  // }
-
-  // cdf[ low ]
-  let mut i = 0;
-  while i < cdf.len( ) && cdf[ i ].1 < r {
-    i += 1;
-  }
-  if i == cdf.len( ) {
-    cdf.len( ) - 1
-  } else {
-    i
   }
 }

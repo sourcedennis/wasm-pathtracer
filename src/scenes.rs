@@ -54,17 +54,17 @@ pub fn setup_scene_museum( ) -> Scene {
 }
 
 fn museum_lights( dst : &mut Vec< Rc< dyn Tracable > >, x : f32, y : f32, color : Vec3 ) {
-  let lc1 = Vec3::new( x - 1.0, 0.0, y + 2.5 );
-  let lc2 = Vec3::new( x + 1.0, 0.0, y + 2.5 );
-  let lc3 = Vec3::new( x + 1.0, 1.0, y + 2.8 );
-  let lc4 = Vec3::new( x - 1.0, 1.0, y + 2.8 );
+  let lc1 = Vec3::new( x - 1.0, 0.0, y + 2.8 );
+  let lc2 = Vec3::new( x + 1.0, 0.0, y + 2.8 );
+  let lc3 = Vec3::new( x + 1.0, 1.0, y + 2.5 );
+  let lc4 = Vec3::new( x - 1.0, 1.0, y + 2.5 );
   dst.push( Rc::new( Triangle::new( lc3, lc2, lc1, Material::emissive( color ) ) ) );
   dst.push( Rc::new( Triangle::new( lc4, lc3, lc1, Material::emissive( color ) ) ) );
   
-  let lc1 = Vec3::new( x - 1.0, 0.0, y - 2.5 );
-  let lc2 = Vec3::new( x + 1.0, 0.0, y - 2.5 );
-  let lc3 = Vec3::new( x + 1.0, 1.0, y - 2.8 );
-  let lc4 = Vec3::new( x - 1.0, 1.0, y - 2.8 );
+  let lc1 = Vec3::new( x - 1.0, 0.0, y - 2.8 );
+  let lc2 = Vec3::new( x + 1.0, 0.0, y - 2.8 );
+  let lc3 = Vec3::new( x + 1.0, 1.0, y - 2.5 );
+  let lc4 = Vec3::new( x - 1.0, 1.0, y - 2.5 );
   dst.push( Rc::new( Triangle::new( lc3, lc2, lc1, Material::emissive( color ) ) ) );
   dst.push( Rc::new( Triangle::new( lc4, lc3, lc1, Material::emissive( color ) ) ) );
 }

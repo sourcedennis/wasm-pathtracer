@@ -81,10 +81,11 @@ pub fn init( width : u32, height : u32, scene_id : u32, render_type : u32
     let rng      = Rc::new( RefCell::new( Rng::new( ) ) );
 
     let left_sampling  = Box::new( RandomSamplingStrategy::new( 0, 0, left_width, height as usize, rng.clone( ) ) );
-    let right_sampling = Box::new( AdaptiveSamplingStrategy::new( left_width, 0, width as usize - left_width, height as usize, target.clone( ), rng.clone( ) ) );
+    //let right_sampling = Box::new( AdaptiveSamplingStrategy::new( left_width, 0, width as usize - left_width, height as usize, target.clone( ), rng.clone( ) ) );
+    let right_sampling = Box::new( RandomSamplingStrategy::new( left_width, 0, width as usize - left_width, height as usize, rng.clone( ) ) );
 
     let left_instance  = RenderInstance::new( scene.clone( ), camera.clone( ), rng.clone( ), left_sampling,  target.clone( ), RenderType::NormalNEE );
-    let right_instance = RenderInstance::new( scene.clone( ), camera.clone( ), rng.clone( ), right_sampling, target.clone( ), RenderType::NormalNEE );
+    let right_instance = RenderInstance::new( scene.clone( ), camera.clone( ), rng.clone( ), right_sampling, target.clone( ), RenderType::PNEE );
 
     CONFIG = Some( Config {
       // ## Global State

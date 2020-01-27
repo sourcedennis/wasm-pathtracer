@@ -84,6 +84,20 @@ impl Scene {
     Scene { background, lights: light_enums, bvh: scene.bvh, shapes: scene.shapes }
   }
 
+  pub fn scene_bounds( &self ) -> Option< AABB > {
+    match &self.bvh {
+      BVHEnum::BVH2( _, bvh ) => {
+        Some( bvh[ 0 ].bounds )
+      },
+      BVHEnum::BVH4( _, bvh ) => {
+        Some( bvh[ 0 ].child_bounds.extract_hull( 4 ) )
+      },
+      _ => {
+        None
+      }
+    }
+  }
+
   /// Rebuilds the BVH, and returns the number of nodes
   /// The BVH is build with the provided number of bins in `num_bins`.
   /// If `is_bvh4` is true, a 4-way BVH is built. Otherwise a 2-way BVH is built.

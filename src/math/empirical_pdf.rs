@@ -1,7 +1,9 @@
+use std::fmt;
 use crate::rng::Rng;
 
-/// An empiral Probability Distribution Function, with a fixed bin count
-pub struct EmpiralPDF {
+/// An empirical Probability Distribution Function, with a fixed bin count
+#[derive(Clone)]
+pub struct EmpiricalPDF {
   // Chances per bin
   bins     : Vec< f32 >,
   // Cumulative chance per bin
@@ -12,23 +14,29 @@ pub struct EmpiralPDF {
   has_updated_bins : bool
 }
 
-impl EmpiralPDF {
-  // Constructs a new empiral PDF
-  pub fn new( num_bins : usize ) -> EmpiralPDF {
-    EmpiralPDF {
-      bins:             vec![ 1.0; num_bins ]
-    , cum_bins:         vec![ 1.0 / num_bins as f32; num_bins ]
-    , has_updated_bins: false
-    }
+impl EmpiricalPDF {
+  /// Constructs a new empirical PDF
+  pub fn new( num_bins : usize ) -> EmpiricalPDF {
+    EmpiricalPDF {
+        bins:             vec![ 1.0; num_bins ]
+      , cum_bins:         vec![ 0.0 as f32; num_bins ]
+      , has_updated_bins: true
+      }
   }
 
-  // Sets a (relative) scale for one particular bin
+  /// Sets a (relative) scale for one particular bin
   pub fn set( &mut self, bin_id : usize, val : f32 ) {
     self.bins[ bin_id ]   = val;
     self.has_updated_bins = true;
   }
 
-  // Randomly samples a bin, based on its probability
+  /// Add a value to the (relative) scale for one particular bin
+  pub fn add( &mut self, bin_id : usize, val : f32 ) {
+    self.bins[ bin_id ]   += val;
+    self.has_updated_bins = true;
+  }
+
+  /// Randomly samples a bin, based on its probability
   pub fn sample( &mut self, rng : &mut Rng ) -> usize {
     self.recheck_cdf( );
 
@@ -51,11 +59,13 @@ impl EmpiralPDF {
 
   /// Returns the chance of hitting bin `i`
   pub fn bin_prob( &mut self, i : usize ) -> f32 {
+    self.recheck_cdf( );
+
     let bin_prob =
-      if i + 1 == self.bins.len( ) {
-        1.0 - self.bins[ i ]
+      if i + 1 == self.cum_bins.len( ) {
+        1.0 - self.cum_bins[ i ]
       } else {
-        self.bins[ i + 1 ] - self.bins[ i ]
+        self.cum_bins[ i + 1 ] - self.cum_bins[ i ]
       };
 
     bin_prob
@@ -77,5 +87,23 @@ impl EmpiralPDF {
       }
       self.has_updated_bins = false;
     }
+  }
+}
+
+#[allow(unused_must_use)]
+impl fmt::Debug for EmpiricalPDF {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    let mut clone = self.clone( );
+    clone.recheck_cdf( );
+
+    write!( f, "EmpiricalPDF {{" );
+    if clone.cum_bins.len( ) > 0 {
+      write!( f, "{}", clone.cum_bins[ 0 ] );
+
+      for i in 1..clone.cum_bins.len( ) {
+        write!( f, ", {}", clone.cum_bins[ i ] );
+      }
+    }
+    write!( f, "}}" )
   }
 }
