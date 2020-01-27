@@ -22,9 +22,14 @@ pub struct PhotonTree {
   size       : f32
 }
 
+/// The identifier of a light within the scene
 type LightId = usize;
-static MAX_PHOTONS_IN_CELL : usize = 4096;
 
+/// Once the number of photons in a cell exceeds this amount, it is subdivided
+static MAX_PHOTONS_IN_CELL : usize = 1024;
+
+/// An octree node. Each internal node has 8 children
+/// Note that all nodes have an associated CDF.
 enum Octree {
   Node {
     cdf      : EmpiricalPDF,
@@ -37,6 +42,9 @@ enum Octree {
 }
 
 impl PhotonTree {
+  /// Constructs a new PhotonTree
+  /// It needs to know the number of lights in the scene, such that it can
+  ///   some positive probability for each light, at least.
   pub fn new( num_lights : usize ) -> PhotonTree {
     PhotonTree {
       num_lights
@@ -47,6 +55,9 @@ impl PhotonTree {
     }
   }
 
+  /// Inserts a new photon into the tree
+  /// The intensity represents the color by a single value
+  ///   (typically max(r,g,b) is a good choice)
   pub fn insert( &mut self, light_id : LightId, location : Vec3, intensity : f32 ) -> bool {
     if location.x < -self.size && location.x > self.size &&
        location.y < -self.size && location.y > self.size &&
@@ -64,6 +75,8 @@ impl PhotonTree {
     true
   }
 
+  /// Samples a light source for the point `v`. The probability of picking that
+  /// particular light source is also returned.
   pub fn sample( &mut self, rng : &mut Rng, v : Vec3 ) -> (LightId, f32) {
     // Interpolate the CDFs
 
@@ -109,13 +122,13 @@ impl PhotonTree {
         ( right_weight, left_weight, -1.0 )
       };
     assert!( weight_z >= 0.0 && weight_z <= 1.0 && weight_adj_z >= 0.0 && weight_adj_z <= 1.0 );
-    //assert!( weight_z >= 0.0 && weight_z <= 1.0 && weight_adj_z >= 0.0 && weight_adj_z <= 1.0 );
     
-    // Sample from it's own Octree cell? (Or from it's adjacent)
+    // Sample from it's own Octree cell? (Or from an adjacent cell?)
     let sample_self_x = rng.next( ) <= weight_x;
     let sample_self_y = rng.next( ) <= weight_y;
     let sample_self_z = rng.next( ) <= weight_z;
 
+    // Lookup `v` as if it were in an adjacent cell
     let sampled_v   =
       v +
       if sample_self_x { Vec3::ZERO } else { x_off * Vec3::new( bounds.x_size( ), 0.0, 0.0 ) } +
@@ -132,8 +145,7 @@ impl PhotonTree {
     let ajy = bounds.y_size( ) * y_off;
     let ajz = bounds.z_size( ) * z_off;
 
-    // println!( "{:?}", self.root.find_node_cdf( self_bounds, depth, v + Vec3::new( 0.0, ajy, 0.0 ) ) );
-
+    // Bilinear interpolation of the probability of picking `res` over the adjacent nodes
     pdf += self.root.find_node_cdf( self_bounds, depth, v ).bin_prob( res ) * weight_x * weight_y * weight_z;
     pdf += self.root.find_node_cdf( self_bounds, depth, v + Vec3::new( ajx, 0.0, 0.0 ) ).bin_prob( res ) * weight_adj_x * weight_y * weight_z;
     pdf += self.root.find_node_cdf( self_bounds, depth, v + Vec3::new( 0.0, ajy, 0.0 ) ).bin_prob( res ) * weight_x * weight_adj_y * weight_z;
@@ -148,6 +160,8 @@ impl PhotonTree {
 }
 
 impl Octree {
+  /// Inserts a photon at `location` into the tree
+  /// As octrees don't store their own bounds, this needs to be passed as well
   pub fn insert( &mut self, num_lights : usize, self_bounds : AABB, light_id : LightId, location : Vec3, intensity : f32 ) {
     match self {
       Octree::Node { cdf, children } => {
@@ -181,6 +195,9 @@ impl Octree {
     }
   }
 
+  /// Returns properties of the smallest cell containing `location`
+  /// As nodes don't store their bounds or depth, these need to be provided
+  ///   (start at depth 0)
   pub fn find_leaf< 'a >( &'a mut self, self_bounds : AABB, depth : usize, location : Vec3 ) -> ( &'a mut EmpiricalPDF, AABB, usize ) {
     match self {
       Octree::Node { children, .. } => {
@@ -193,6 +210,9 @@ impl Octree {
     }
   }
 
+  /// Returns the distribution function for a point located at `location` within
+  /// the Octree. It will *not* look deeper than `depth`; if this finds an
+  /// internal node instead, that node's CDF is returned.
   pub fn find_node_cdf< 'a >( &'a mut self, self_bounds : AABB, depth : usize, location : Vec3 ) -> &'a mut EmpiricalPDF {
     match self {
       Octree::Node { cdf, children } => {
@@ -211,7 +231,7 @@ impl Octree {
   }
 }
 
-// Computes the child ID from
+// Computes the child ID and AABB of an octree node
 fn child( bounds : AABB, v : Vec3 ) -> ( usize, AABB ) {
   let c = bounds.center( );
 
@@ -247,167 +267,3 @@ impl fmt::Debug for Octree {
     }
   }
 }
-
-// use crate::math::Vec3;
-// use crate::graphics::AABB;
-// use std::collections::HashMap;
-
-// pub struct PhotonTree {
-//   // Have one tree per light source
-//   roots : HashMap< usize, Box< KDTreeNode > >
-// }
-
-// struct KDTreeNode {
-//   value         : Vec3,
-//   bounds        : AABB,
-//   sum_intensity : f32,
-//   left          : Option< Box< KDTreeNode > >,
-//   right         : Option< Box< KDTreeNode > >
-// }
-
-// impl PhotonTree {
-//   pub fn new( ) -> PhotonTree {
-//     PhotonTree { roots: HashMap::new( ) }
-//   }
-
-//   pub fn insert( &mut self, v : Vec3, intensity : f32, light_id : usize ) {
-//     let mut some_tree : &mut Option<Box<KDTreeNode>>;
-
-//     if let Some( tree ) = self.roots.get_mut( &light_id ) {
-//       tree.bounds = tree.bounds.include( v );
-//       tree.sum_intensity += intensity;
-//       if v.x < tree.value.x {
-//         some_tree = &mut tree.left;
-//       } else {
-//         some_tree = &mut tree.right;
-//       }
-
-//       for _i in 0..15 { // Set a depth cap
-//         // Insert y
-//         if let Some( ref mut node ) = some_tree {
-//           node.bounds = node.bounds.include( v );
-//           node.sum_intensity += intensity;
-//           if v.y < node.value.y {
-//             some_tree = &mut tree.left;
-//           } else {
-//             some_tree = &mut tree.right;
-//           }
-//         } else {
-//           *some_tree = Some( Box::new( KDTreeNode { value: v, sum_intensity: intensity, bounds: AABB::new1( v.x, v.y, v.z, v.x, v.y, v.z ), left: None, right: None } ) );
-//           return;
-//         }
-  
-//         // Insert z
-//         if let Some( ref mut node ) = some_tree {
-//           node.bounds = node.bounds.include( v );
-//           node.sum_intensity += intensity;
-//           if v.z < node.value.z {
-//             some_tree = &mut tree.left;
-//           } else {
-//             some_tree = &mut tree.right;
-//           }
-//         } else {
-//           *some_tree = Some( Box::new( KDTreeNode { value: v, sum_intensity: intensity, bounds: AABB::new1( v.x, v.y, v.z, v.x, v.y, v.z ), left: None, right: None } ) );
-//           return;
-//         }
-  
-//         // Insert x
-//         if let Some( ref mut node ) = some_tree {
-//           node.bounds = node.bounds.include( v );
-//           node.sum_intensity += intensity;
-//           if v.x < node.value.x {
-//             some_tree = &mut tree.left;
-//           } else {
-//             some_tree = &mut tree.right;
-//           }
-//         } else {
-//           *some_tree = Some( Box::new( KDTreeNode { value: v, sum_intensity: intensity, bounds: AABB::new1( v.x, v.y, v.z, v.x, v.y, v.z ), left: None, right: None } ) );
-//           return;
-//         }
-//       }
-//     } else {
-//       self.roots.insert( light_id, Box::new( KDTreeNode { value: v, sum_intensity: intensity, bounds: AABB::new1( v.x, v.y, v.z, v.x, v.y, v.z ), left: None, right: None } ) );
-//     }
-//   }
-
-//   pub fn query_cdf( &self, dst : &mut Vec< (usize, f32) >, v : &Vec3 ) {
-//     let mut sum = 0.0;
-
-//     dst.clear( );
-
-//     for light_id in self.roots.keys( ) {
-//       if let Some( tree ) = self.roots.get( &light_id ) {
-//         if tree.bounds.contains_point( v ) {
-//           let c = ( tree.bounds.area( ) / tree.sum_intensity as f32 ).max( find_contribution( &tree.left, v ) ).max( find_contribution( &tree.right, v ) );
-//           dst.push( ( *light_id, c ) );
-//           sum += c;
-//         }
-//       }
-//     }
-
-//     if sum > 0.0 {
-//       let mut offset = 0.0;
-//       for i in 0..dst.len( ) {
-//         let (light_id, weight) = dst[ i ];
-//         dst[ i ] = (light_id, offset);
-//         offset += weight / sum;
-//       }
-//     }
-//   }
-// }
-
-// fn find_contribution( node: &Option< Box< KDTreeNode > >, v : &Vec3 ) -> f32 {
-//   match node {
-//     None => 0.0,
-//     Some( n ) => {
-//       if n.bounds.contains_point( v ) {
-//         // Return the photon density in the area around `v`, for this particular light
-//         ( n.bounds.area( ) / n.sum_intensity as f32 ).max( find_contribution( &n.left, v ) ).max( find_contribution( &n.right, v ) )
-//       } else {
-//         0.0
-//       }
-//     }
-//   }
-// }
-
-// // fn insert_x( m_node : &mut Option< Box< KDTreeNode > >, v : Vec3, intensity : f32 ) {
-// //   if let Some( ref mut node ) = m_node {
-// //     node.bounds = node.bounds.include( v );
-// //     node.sum_intensity += intensity;
-// //     if v.x < node.value.x {
-// //       insert_y( &mut node.left, v, intensity );
-// //     } else {
-// //       insert_y( &mut node.right, v, intensity );
-// //     }
-// //   } else {
-// //     *m_node = Some( Box::new( KDTreeNode { value: v, sum_intensity: intensity, bounds: AABB::new1( v.x, v.y, v.z, v.x, v.y, v.z ), left: None, right: None } ) )
-// //   }
-// // }
-
-// // fn insert_y( m_node : &mut Option< Box< KDTreeNode > >, v : Vec3, intensity : f32 ) {
-// //   if let Some( ref mut node ) = m_node {
-// //     node.bounds = node.bounds.include( v );
-// //     node.sum_intensity += intensity;
-// //     if v.y < node.value.y {
-// //       insert_z( &mut node.left, v, intensity );
-// //     } else {
-// //       insert_z( &mut node.right, v, intensity );
-// //     }
-// //   } else {
-// //     *m_node = Some( Box::new( KDTreeNode { value: v, sum_intensity: intensity, bounds: AABB::new1( v.x, v.y, v.z, v.x, v.y, v.z ), left: None, right: None } ) )
-// //   }
-// // }
-
-// // fn insert_z( m_node : &mut Option< Box< KDTreeNode > >, v : Vec3, intensity : f32 ) {
-// //   if let Some( ref mut node ) = m_node {
-// //     node.bounds = node.bounds.include( v );
-// //     node.sum_intensity += intensity;
-// //     if v.z < node.value.z {
-// //       insert_x( &mut node.left, v, intensity );
-// //     } else {
-// //       insert_x( &mut node.right, v, intensity );
-// //     }
-// //   } else {
-// //     *m_node = Some( Box::new( KDTreeNode { value: v, sum_intensity: intensity, bounds: AABB::new1( v.x, v.y, v.z, v.x, v.y, v.z ), left: None, right: None } ) )
-// //   }
-// // }

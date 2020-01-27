@@ -87,6 +87,8 @@ impl RenderInstance {
     self.sampling_strategy.reset( );
   }
 
+  /// From now on, the render instance will render the provided scene
+  /// This restarts the renderer
   pub fn update_scene( &mut self, scene : Rc< Scene > ) {
     self.num_photons = 0;
     self.photons     = PhotonTree::new( scene.lights.len( ) );
@@ -94,6 +96,10 @@ impl RenderInstance {
     self.reset( );
   }
 
+  /// Performs several computation "ticks"
+  /// Typically, each tick corresponds to tracing one ray
+  /// However, when PNEE is enabled, it may also correspond to tracing 32
+  ///   photons into the scene.
   pub fn compute( &mut self, num_ticks : usize ) {
     let total_photons_needed = 300000;
 
@@ -116,36 +122,37 @@ impl RenderInstance {
     }
   }
 
+  /// Preprocess some photons (only applicable for PNEE)
   fn preprocess_photons( &mut self, num_ticks : usize ) {
     let mut rng = self.rng.borrow_mut( );
     let scene   = &self.scene;
 
-    //if let Some( b ) = self.scene.scene_bounds( ) {
-      for _i in 0..num_ticks {
-        let light_id = rng.next_in_range( 0, scene.lights.len( ) );
-        match &scene.lights[ light_id ] {
-          LightEnum::Point( _ ) => panic!( "Pointlight unsupported" ),
-          LightEnum::Area( shape_id ) => {
-            let light_shape = &scene.shapes[ *shape_id ];
-            let (point_on_light, ln, intensity) = light_shape.pick_random( &mut rng );
-            let light_normal = rng.next_hemisphere( &ln );
-            let ray = Ray::new( point_on_light + light_normal * EPSILON, light_normal );
-            let (num_bvh_hits, m_hit) = scene.trace( &ray );
-            self.num_bvh_hits += num_bvh_hits;
-  
-            if let Some( hit ) = m_hit {
-              let photon_hitpoint = ray.at( hit.distance ) + hit.normal * EPSILON;
-              if hit.mat.is_diffuse( ) {
-                self.photons.insert( light_id, photon_hitpoint, ln.dot( light_normal ) * intensity.x.max( intensity.y ).max( intensity.z ) );
-                self.num_photons += 1;
-              }
+    for _i in 0..num_ticks {
+      let light_id = rng.next_in_range( 0, scene.lights.len( ) );
+      match &scene.lights[ light_id ] {
+        LightEnum::Point( _ ) => panic!( "Pointlight unsupported" ),
+        LightEnum::Area( shape_id ) => {
+          let light_shape = &scene.shapes[ *shape_id ];
+          let (point_on_light, ln, intensity) = light_shape.pick_random( &mut rng );
+          let light_normal = rng.next_hemisphere( &ln );
+          let ray = Ray::new( point_on_light + light_normal * EPSILON, light_normal );
+          let (num_bvh_hits, m_hit) = scene.trace( &ray );
+          self.num_bvh_hits += num_bvh_hits;
+
+          if let Some( hit ) = m_hit {
+            let photon_hitpoint = ray.at( hit.distance ) + hit.normal * EPSILON;
+            if hit.mat.is_diffuse( ) {
+              self.photons.insert( light_id, photon_hitpoint, ln.dot( light_normal ) * intensity.x.max( intensity.y ).max( intensity.z ) );
+              self.num_photons += 1;
             }
           }
         }
       }
-    //}
+    }
   }
 
+  /// Shoots several rays into the scene
+  /// The rays are selected through the sampling strategy
   fn compute_rays( &mut self, num_ticks : usize ) {
     let origin;
     let w_inv;

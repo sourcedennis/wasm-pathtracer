@@ -1,5 +1,4 @@
 import { Camera }    from './graphics/camera';
-import { Vec2 }      from './math/vec2';
 import { Triangles } from './graphics/triangles';
 import { Texture }   from './graphics/texture';
 
@@ -10,8 +9,11 @@ export interface Msg {
 // ### Client-to-Worker Messages ###
 // C2W stands for Client-to-Worker
 
+// Initialises the renderer
 export interface MsgC2WInit extends Msg {
   type       : 'init',
+  // The compiled WebAssembly module that should be instantiated by the
+  // render worker.
   mod        : WebAssembly.Module,
   sceneId    : number,
   buffer     : SharedArrayBuffer,
@@ -20,11 +22,13 @@ export interface MsgC2WInit extends Msg {
   camera     : Camera
 }
 
+// Moves the camera
 export interface MsgC2WUpdateCamera extends Msg {
   type   : 'update_camera',
   camera : Camera
 }
 
+// Resizes the viewport
 export interface MsgC2WUpdateViewport extends Msg {
   type   : 'update_viewport',
   width  : number,
@@ -33,31 +37,37 @@ export interface MsgC2WUpdateViewport extends Msg {
   buffer : SharedArrayBuffer
 }
 
+// Selects a new scene to be rendered. This restarts the render
 export interface MsgC2WUpdateScene extends Msg {
   type    : 'update_scene',
   sceneId : number
 }
 
+// Stores a mesh in the renderer's memory
 export interface MsgC2WStoreMesh extends Msg {
   type : 'store_mesh',
   id   : number,
   mesh : Triangles
 }
 
+// Stores a texture in the renderer's memory
 export interface MsgC2WStoreTexture extends Msg {
   type    : 'store_texture',
   id      : number,
   texture : Texture
 }
 
+// Pauses rendering
 export interface MsgC2WPause extends Msg {
   type : 'pause'
 }
 
+// Resumes rendering
 export interface MsgC2WResume extends Msg {
   type : 'resume'
 }
 
+// Updates fundamental settings of the renderer. This restarts the render.
 export interface MsgC2WUpdateSettings extends Msg {
   type            : 'update_settings',
   leftType        : number, //0=NoNEE, 1=NEE, 2=PNEE
@@ -67,25 +77,13 @@ export interface MsgC2WUpdateSettings extends Msg {
   isLightDebug    : boolean
 }
 
+// Changes the buffer that is shown. Either the diffuse render buffer or a
+// visualisation of the sampled pixels. This does *not* reset the render.
 export interface MsgC2WUpdateViewType {
   type                      : 'update_view_type',
   // If true, show the sampling strategy. Otherwise show the diffuse buffer
   isShowingSamplingStrategy : boolean
 }
-
-// export interface MsgC2WRebuildBVH extends Msg {
-//   type    : 'rebuild_bvh',
-//   numBins : number,
-//   isBVH4  : boolean
-// }
-
-// export interface MsgC2WDisableBVH extends Msg {
-//   type : 'disable_bvh'
-// }
-
-// export interface MsgC2WCompute extends Msg {
-//   type : 'compute'
-// }
 
 // ### Worker-to-Client Messages ###
 // W2C stands for Worker-to-Client
@@ -100,21 +98,3 @@ export interface MsgW2CInitDone extends Msg {
 export interface MsgW2CComputeDone extends Msg {
   type : 'compute_done'
 }
-
-// export interface MsgW2CBvhDone extends Msg {
-//   type : 'bvh_done'
-// }
-
-// Sent when a texture is succesfully pushed to the path tracer
-// export interface MsgW2CTextureDone extends Msg {
-//   type: 'texture_done'
-// }
-
-// // Sent when a mesh is successfully pushed to the path tracer
-// export interface MsgW2CMeshDone extends Msg {
-//   type: 'mesh_done'
-// }
-
-// export interface MsgW2CUpdateSceneDone extends Msg {
-//   type: 'update_scene_done'
-// }

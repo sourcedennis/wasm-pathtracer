@@ -84,6 +84,7 @@ export class BackgroundPathTracer {
     this._worker.terminate( );
   }
 
+  // Updates the render settings. This restarts the renderer
   public updateSettings(
         leftType : number, rightType : number
       , isLeftAdaptive : boolean, isRightAdaptive : boolean
@@ -92,6 +93,8 @@ export class BackgroundPathTracer {
     this._worker.postMessage( msg );
   }
 
+  // Updates the buffer that is shown to the screen
+  // Either the normal diffuse buffer (if false), or the light-selection debug buffer
   public updateViewType( isShowingSamplingStrategy : boolean ) {
     let msg : MsgC2WUpdateViewType = { type: 'update_view_type', isShowingSamplingStrategy };
     this._worker.postMessage( msg );

@@ -6,8 +6,8 @@ This is a path tracer written in Rust, intended to be compiled into WebAssembly 
 
 ## 0. Changes
 The raytracer is converted to a path tracer. This path tracer contains the following special features:
-* Photon-Based Next Event Estimation - Prior to path tracing the scene, photons are sent from the light sources into the scene. These photons are used to find the most-contributing light sources for any particular hit point.
-* Adaptive Sampling - Samples are mainly taken for pixels that need it the most. (E.g. wherever the most noise and fireflies are)
+* Photon-Based Next Event Estimation - Prior to path tracing the scene, photons are sent from the light sources into the scene. These photons are used to find the most-contributing light sources for any particular hit point. (See file `src/data/photon_tree.rs` and `src/tracer.rs`)
+* Adaptive Sampling - Samples are mainly taken for pixels that need it the most. (E.g. wherever the most noise and fireflies are - See file `src/graphics/sampling_strategy.rs`)
 
 ## 1. Running
 Compiling the application yourself can be a bit troublesome, as compilers for *three* languages (TypeScript, Rust, Elm) need to be present.
@@ -68,11 +68,13 @@ The Rust sourcecode is located in the `src` directory. Some important files are 
 * `tracer.rs` - Contains code for tracing a single ray (recursively) into a scene
 * `scenes.rs` - The hardcoded scenes
 * `main.rs` - The entry-point when *not* compiling to WebAssembly (but to native). Used for debugging and benchmarking.
+* `data/photon_tree.rs` - An octree for storing photons. All nodes contain a CDF for the contributing light sources
 * `graphics/`
   * `scene.rs` - General scene description. Contains methods for tracing rays (and shadow rays) into the scene. Also contains code for traversing the BVH.
   * `material.rs` - The material class (reflection, diffuse, refraction; potentially with textures)
   * `bvh.rs` - Constructs a 2-way BVH
   * `bvh4.rs` - Collapses a 4-way BVH to a 2-way BVH
+  * `sampling_strategy.rs` - Contains the random and adaptive sampling strategies
   * `primitives/` - Contains all implemented primitives (each implements `Tracable` from `graphics/ray.rs`)
 
 ### TypeScript Source
