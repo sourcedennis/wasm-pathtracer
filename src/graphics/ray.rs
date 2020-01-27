@@ -92,20 +92,17 @@ pub trait Tracable : Bounded {
   /// Returns true when the shape is in any way emissive
   fn is_emissive( &self ) -> bool;
 
-  /// The point `p` with its normal `p_normal` represent a hemisphere
-  /// This functions returns the area of this shape on that hemisphere
-  /// This can never be more than `2*PI`
-  fn solid_hemi_angle( &self, p : &Vec3, p_normal : &Vec3 ) -> f32 {
-    panic!( "Not implemented" );
-  }
-
+  /// Returns the surface area of the shape
   fn surface_area( &self ) -> f32 {
     panic!( "Not implemented" );
   }
 
   /// Pick a random point *on the sphere around p*, which points toward this
   /// shape. Secondly, returns the normal. Thirdly, also returns the intensity
-  fn pick_random( &self, rng : &mut Rng ) -> (Vec3, Vec3, Vec3);
+  /// So: (point, normal, intensity)
+  fn pick_random( &self, _rng : &mut Rng ) -> (Vec3, Vec3, Vec3) {
+    panic!( "Not implemented" );
+  }
 
   /// Traces a ray with limited properties evaluated at the hit.
   /// That is, no normal or materials are included. Only its distance from the

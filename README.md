@@ -1,15 +1,13 @@
-# Whitted-style Ray Tracing
+# Path Tracer
 
 Live demo: [https://raytracer.space/](https://raytracer.space/) (Definitely runs in Google Chrome on Win10)
 
-This is a realtime whitted-style raytracer written in Rust, intended to be compiled into WebAssembly (WASM). The included TypeScript Web App periodically invokes the WASM raytracer, and provides a GUI to interact with it.
+This is a path tracer written in Rust, intended to be compiled into WebAssembly (WASM). The included TypeScript Web App periodically invokes the WASM path tracer, and provides a GUI to interact with it.
 
 ## 0. Changes
-Bounding Volume Hierarchy construction and traversal is added. This includes 2-way BVHs and 4-way BVHs.
-
-For 4-way BVHs, SIMD is used. Sadly, WASM support for SIMD is limited, thus no performance increase can be observed in browsers yet. Instead, run `cargo run` to benchmark this in a native build. (Requires Rust Nightly, because SIMD is also experimental in Rust).
-
-Mainly, changes took place in `src/graphics/bvh.rs` (2-way BVH construction), `src/graphics/bvh4.rs` (4-way BVH construction), and `src/graphics/scene.rs` (BVH traversal).
+The raytracer is converted to a path tracer. This path tracer contains the following special features:
+* Photon-Based Next Event Estimation - Prior to path tracing the scene, photons are sent from the light sources into the scene. These photons are used to find the most-contributing light sources for any particular hit point.
+* Adaptive Sampling - Samples are mainly taken for pixels that need it the most. (E.g. wherever the most noise and fireflies are)
 
 ## 1. Running
 Compiling the application yourself can be a bit troublesome, as compilers for *three* languages (TypeScript, Rust, Elm) need to be present.
@@ -102,6 +100,8 @@ Some important files are described below.
 * "Shallow Bounding Volume Hierarchies for Fast SIMD Ray Tracing of Incoherent Rays" by H. Dammertz and J. Hanika and A. Keller - On 4-way BVH SIMD structures
 * "Adaptive Collapsing on Bounding Volume Hierarchies for Ray-Tracing" by A. Susano Pinto - On 2-way BVH collapsing
 * "Stanford bunny" by G. Turk and M. Levoy
+* "Efficient data structures and sampling of many light sources for Next Event Estimation" by Andreas Mikolajewski - On the PNEE
+* "Adaptive Sampling and Reconstruction using Greedy Error Minimization" by F. Rousselle, C. Knaus, and M. Zwicker - On Adaptive Sampling
 
 ## 5. License
 The included [fonts](https://fonts.google.com/specimen/Open+Sans) (which I absolutely needed) were published under the [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0).

@@ -117,8 +117,8 @@ function handleInit( msg : MsgC2WInit ): void {
     instance = ins;
 
     // Pass all the primitives to initialisation
-    ins.exports.init( msg.width, msg.height, msg.sceneId, /* color */ 0
-      , cam.location.x, cam.location.y, cam.location.z, cam.rotX, cam.rotY );
+    ins.exports.init( msg.width, msg.height, msg.sceneId,
+      cam.location.x, cam.location.y, cam.location.z, cam.rotX, cam.rotY );
 
     postMessage( <MsgW2CInitDone> { type: 'init_done' } );
 
@@ -157,7 +157,6 @@ function handleUpdateSettings( msg : MsgC2WUpdateSettings ) {
 
 function handleUpdateViewType( msg : MsgC2WUpdateViewType ) {
   isShowingSamplingStrategy = msg.isShowingSamplingStrategy;
-  console.log( 'isss', isShowingSamplingStrategy );
 
   // Store the result in shared memory
   let resPtr = instance.exports.results( isShowingSamplingStrategy ? 1 : 0 );

@@ -2,7 +2,7 @@ port module PanelScenes exposing (main)
 
 import Browser
 import Html            exposing
-  (Html, Attribute, h2, hr, br, div, text, span, button)
+  (Html, h2, hr, div, text, span)
 import Html.Attributes exposing (class, id, style)
 import Html.Events     exposing (onClick)
 
@@ -60,7 +60,7 @@ view m =
     [ h2 [] [ text "Scene" ]
     , hr [ style "width" "100%" ] []
     , div [ style "overflow-y" "auto", style "overflow-x" "hidden", style "width" "225pt" ]
-        [ sceneC (m == SceneLights) (SelectScene SceneLights) "Many Lights"  "images/banners/air_hole.png"
+        [ sceneC (m == SceneLights) (SelectScene SceneLights) "Many Lights"  "images/banners/lights.png"
         , sceneC (m == SceneBunny)  (SelectScene SceneBunny)  "Bunny"        "images/banners/bunny_high.png"
         ]
     ]

@@ -3,7 +3,6 @@ use crate::math::{Vec2, Vec3};
 use crate::graphics::Material;
 use crate::graphics::ray::{Ray, Tracable, Bounded, Hit};
 use crate::graphics::AABB;
-use crate::rng::Rng;
 
 /// A finite square plane in 3d
 /// For now, its normal always points upward
@@ -18,16 +17,19 @@ pub struct Square {
 }
 
 impl Square {
+  /// Constructs a new square centered at the provided location
   pub fn new( location : Vec3, size : f32, mat : Material ) -> Square {
     Square { location, size, mat }
   }
 }
 
 impl Bounded for Square {
+  /// See `Bounded::location()`
   fn location( &self ) -> Option< Vec3 > {
     Some( self.location )
   }
 
+  /// See `Bounded::aabb()`
   fn aabb( &self ) -> Option< AABB > {
     let l = self.location;
     let hsize = self.size * 0.5;
@@ -45,14 +47,12 @@ impl Bounded for Square {
 }
 
 impl Tracable for Square {
-  fn pick_random( &self, rng : &mut Rng ) -> (Vec3, Vec3, Vec3) {
-    panic!( "Not implemented" );
-  }
-
+  /// See `Tracable::is_emissive()`
   fn is_emissive( &self ) -> bool {
     self.mat.is_emissive( )
   }
   
+  /// See `Tracable::trace()`
   fn trace( &self, ray: &Ray ) -> Option< Hit > {
     let n_dot_dir = ray.dir.y;
 

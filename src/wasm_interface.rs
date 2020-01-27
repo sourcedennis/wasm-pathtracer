@@ -64,7 +64,7 @@ static mut CONFIG : Option< Config > = None;
 /// Initialises the *Session State*.
 #[wasm_bindgen]
 #[allow(dead_code)]
-pub fn init( width : u32, height : u32, scene_id : u32, render_type : u32
+pub fn init( width : u32, height : u32, scene_id : u32
            , cam_x : f32, cam_y : f32, cam_z : f32, cam_rot_x : f32, cam_rot_y : f32 ) {
   unsafe {
     // Here is quite some code duplication, but this is hard to avoid as global state needs
@@ -133,6 +133,7 @@ pub fn results( is_show_sampling : u32 ) -> *const u8 {
   }
 }
 
+/// Resets the render buffers and renderers
 pub fn reset( ) {
   unsafe {
     if let Some( ref mut conf ) = CONFIG {
@@ -166,6 +167,7 @@ pub fn update_scene( scene_id : u32 ) {
   }
 }
 
+/// Updates settings. Doing this restarts the rendering process
 #[wasm_bindgen]
 #[allow(dead_code)]
 pub fn update_settings( left_type : u32, right_type : u32, is_left_adaptive : u32, is_right_adaptive : u32, is_light_debug : u32 ) {
@@ -201,6 +203,7 @@ pub fn update_settings( left_type : u32, right_type : u32, is_left_adaptive : u3
   }
 }
 
+/// Converts a render type "magic number" to its actual render type
 fn to_render_type( t : u32 ) -> RenderType {
   match t {
     0 => RenderType::NoNEE,

@@ -1,6 +1,5 @@
 // External imports
 use std::f32::{INFINITY};
-use std::f32::consts::{PI};
 use std::rc::Rc;
 // Local imports
 use crate::graphics::{Color3, AABB};
@@ -8,7 +7,8 @@ use crate::graphics::ray::{Ray, Hit, Tracable};
 use crate::graphics::lights::Light;
 use crate::math::{Vec3, EPSILON};
 use crate::graphics::{BVHNode, BVHNode4};
-use crate::rng::Rng;
+
+// A scene description for a path tracer
 
 /// The possible BVH representations
 enum BVHEnum {
@@ -35,27 +35,11 @@ pub struct Scene {
       bvh        : BVHEnum
 }
 
-// // A "hit" for a light source
-// // If such a hit exists, there is a non-occluded ray from a surface point to
-// //   the light source. (This is used for casting shadow rays)
-// pub struct LightHitPoint {
-//   // The vector *to* the light source
-//   pub dir   : Vec3,
-//   // The color of the distance-attenuated (if applicable) light source
-//   pub color : Vec3
-// }
-
-pub struct LightHitArea {
-  // The vector *to* *some* point on the light source
-  pub dir   : Vec3,
-  // The color of the light source (not distance attenuated)
-  pub color : Vec3
-}
-
 type ShapeId = usize;
 
 impl Scene {
   /// Constructs a new scene with the specified lights and shapes
+  #[allow(unused)]
   pub fn new( background : Color3
             , lights     : Vec< Light >
             , shapes     : Vec< Rc< dyn Tracable > >
@@ -82,20 +66,6 @@ impl Scene {
     }
 
     Scene { background, lights: light_enums, bvh: scene.bvh, shapes: scene.shapes }
-  }
-
-  pub fn scene_bounds( &self ) -> Option< AABB > {
-    match &self.bvh {
-      BVHEnum::BVH2( _, bvh ) => {
-        Some( bvh[ 0 ].bounds )
-      },
-      BVHEnum::BVH4( _, bvh ) => {
-        Some( bvh[ 0 ].child_bounds.extract_hull( 4 ) )
-      },
-      _ => {
-        None
-      }
-    }
   }
 
   /// Rebuilds the BVH, and returns the number of nodes

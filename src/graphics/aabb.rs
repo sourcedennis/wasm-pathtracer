@@ -287,6 +287,8 @@ impl AABBx4 {
       )
     )
     
+    // In non-SIMD terms, this is:
+    // ```
     // if tmin > tmax || tmax < 0.0 { // Does not intersect, or bind
     //   -INF
     // } else if tmin >= 0.0 { // Outside the box
@@ -294,5 +296,6 @@ impl AABBx4 {
     // } else { // Inside the box
     //   0.0
     // }
+    // ```
   }
 }

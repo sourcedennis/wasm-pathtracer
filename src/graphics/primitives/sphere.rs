@@ -4,7 +4,6 @@ use std::f32::consts::PI;
 use crate::math::{Vec2, Vec3};
 use crate::graphics::{Material, AABB};
 use crate::graphics::ray::{Ray, Tracable, Bounded, Hit};
-use crate::rng::Rng;
 
 /// A Sphere primitive
 #[derive(Debug, Clone)]
@@ -16,16 +15,19 @@ pub struct Sphere {
 }
 
 impl Sphere {
+  /// Constructs a new sphere at the provided location
   pub fn new( location : Vec3, radius : f32, mat : Material ) -> Sphere {
     Sphere { location, radius, mat }
   }
 }
 
 impl Bounded for Sphere {
+  /// See `Bounded::location()`
   fn location( &self ) -> Option< Vec3 > {
     Some( self.location )
   }
 
+  /// See `Bounded::aabb()`
   fn aabb( &self ) -> Option< AABB > {
     let l = self.location;
     let r = self.radius;
@@ -38,14 +40,12 @@ impl Bounded for Sphere {
 // If the ray's origin is inside the sphere, the resulting normal
 // also points otherwise. Otherwise the normal points outward.
 impl Tracable for Sphere {
-  fn pick_random( &self, rng : &mut Rng ) -> (Vec3, Vec3, Vec3) {
-    panic!( "Not implemented" );
-  }
-  
+  /// See `Tracable::is_emissive()`
   fn is_emissive( &self ) -> bool {
     self.mat.is_emissive( )
   }
   
+  /// See `Tracable::trace()`
   fn trace( &self, ray : &Ray ) -> Option< Hit > {
     // Copied and adjusted from BSc ray-tracer:
     // https://github.com/dennis-school/raytrace_city/blob/master/Code/shapes/sphere.cpp
@@ -100,6 +100,7 @@ impl Tracable for Sphere {
     Some( Hit::new( t, normal, mat, is_entering ) )
   }
   
+  /// See `Tracable::trace_simple()`
   fn trace_simple( &self, ray : &Ray ) -> Option< f32 > {
     // Using algebraic solution. (Non-geometric)
     // Solve: ((O-P)+D*t)^2 - R^2

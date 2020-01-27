@@ -2,6 +2,9 @@ use std::fmt;
 use crate::rng::Rng;
 
 /// An empirical Probability Distribution Function, with a fixed bin count
+/// Warning: Bins are initialised with the value 1.0
+///          If small actual values are written, this skews the PDF
+///          Though, this is done to make no probability ever 0.0
 #[derive(Clone)]
 pub struct EmpiricalPDF {
   // Chances per bin

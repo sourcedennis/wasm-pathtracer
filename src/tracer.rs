@@ -1,18 +1,15 @@
-//use crate::data::stack::DefaultStack;
-use crate::graphics::{Color3, PointMaterial, Scene, LightEnum};
-use crate::graphics::ray::{Ray};
-use crate::graphics::{AABB};
-use crate::math::{EPSILON, Vec3};
-use crate::math;
-use crate::rng::Rng;
+// Stdlib imports
 use std::f32::INFINITY;
-use std::f32::consts::PI;
 use std::rc::Rc;
 use std::cell::RefCell;
+// Local imports
+use crate::graphics::{PointMaterial, Scene, LightEnum};
+use crate::graphics::ray::{Ray};
+use crate::math::{EPSILON, Vec3};
 use crate::render_target::RenderTarget;
-use crate::data::stack::Stack;
 use crate::data::PhotonTree;
 use crate::graphics::{SamplingStrategy};
+use crate::rng::Rng;
 
 /// The scene camera.
 /// It first rotates around the x-axis, then around the y-axis, then it translates
@@ -275,7 +272,8 @@ impl RenderInstance {
 
               match scene.lights[ light_id ] {
                 LightEnum::Point { .. } => {
-                  panic!( "TODO: Point" );
+                  // Point lights are not supported, for now
+                  panic!( "TODO: PointLight" );
                 },
                 LightEnum::Area( light_shape_id ) => {
                   let light_shape = &scene.shapes[ light_shape_id ];

@@ -35,15 +35,6 @@ impl Vec3 {
 
   /// Returns some vector that is orthogonal to the current
   pub fn orthogonal( self ) -> Vec3 {
-    // panic!( "ORTHOGONAL" );
-    // if self.z > self.x && self.z > self.y {
-    //   self.cross( Vec3::new( 1.0, 0.0, 0.0 ) )
-    // } else if self.x > self.y && self.x > self.z {
-    //   self.cross( Vec3::new( 0.0, 1.0, 0.0 ) )
-    // } else {
-    //   self.cross( Vec3::new( 0.0, 0.0, 1.0 ) )
-    // }
-
     if self.z.abs( ) > 0.1 {
       let v1 = 1.0;
       let v2 = 1.0;

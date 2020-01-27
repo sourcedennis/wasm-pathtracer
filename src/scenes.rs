@@ -3,12 +3,10 @@ use std::collections::HashMap;
 use std::rc::Rc;
 // Local imports
 use crate::graphics::{ Color3, Material, Scene };
-use crate::graphics::lights::Light;
-use crate::graphics::primitives::{ AARect, Plane, Sphere, Triangle, Torus };
-use crate::graphics::ray::{ Tracable, Marchable };
+use crate::graphics::primitives::{ AARect, Plane, Triangle, Torus };
+use crate::graphics::ray::{ Tracable };
 use crate::graphics::Mesh;
 use crate::math::Vec3;
-use crate::math;
 use crate::rng::Rng;
 
 static MESH_BUNNY_HIGH : u32 = 1;

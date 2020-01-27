@@ -2,13 +2,12 @@ port module PanelSettings exposing (main)
 
 import Browser
 import Html            exposing
-  (Html, Attribute, h2, hr, br, div, text, span, button, table, tr, td, th, input)
+  (Html, Attribute, h2, hr, br, div, text, span, button, table, tr, td, input)
 import Html.Attributes as Attr exposing (class, id, style, type_)
 import Html.Events     exposing (onClick, onInput, onBlur, on, keyCode)
 import String          exposing (fromInt, toInt)
-import Maybe           exposing (withDefault, andThen)
+import Maybe           exposing (withDefault)
 import Json.Decode     as D
-import String          exposing (length)
 
 -- This is the GUI sidepanel with which runtime parameters of the raytracer
 -- can be set. The TypeScript instance listens to the ports provided by this

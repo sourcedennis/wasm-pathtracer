@@ -11,6 +11,8 @@ import { Observable, XObservable } from '@s/event/observable';
 //   eventually produced once requested.
 // Note that the actual path tracer is written in Rust (and defined in
 // `src`). This is just the interface to a WebWorker running that module.
+// The advantage of running it in the background is that the main thread
+// UI interaction is not interrupted by long computations.
 export class BackgroundPathTracer {
   // The continually updated result of the path tracer of the current scene.
   // scene. The result is a RGBA pixel buffer.

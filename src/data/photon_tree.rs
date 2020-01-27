@@ -8,7 +8,12 @@ use crate::rng::Rng;
 // This technique is adapted from Andreas Mikolajewski's master thesis:
 // "Efficient data structures and sampling of many light sources for Next Event Estimation"
 //
-// An octree is built that contains photons ... TODO
+// An octree is built that contains photons. At each node in this tree a
+// Cumulative Probability Distribution function is stored.
+// Whenever a hit point is queried, it looks at the cell within which that
+// point lies, as well as the 7 adjacent cells (at the same level).
+// The sample is then taken by interpolating the probabilities in in these
+// cells, proportional to "how much the vertex is in that cell".
 
 #[derive(Debug)]
 pub struct PhotonTree {

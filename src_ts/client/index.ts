@@ -71,7 +71,6 @@ class Global {
     window.addEventListener( 'resize', ev => this._onResize( ) );
 
     this._cameraController.onUpdate( ).subscribe( c => {
-      console.log( c );
       this._tracer.updateCamera( c );
     } );
 
@@ -209,19 +208,8 @@ document.addEventListener( 'DOMContentLoaded', ev => {
       appSettings.ports.updateLightDebug.subscribe( b => { env.isLightDebug = b; env.updateSettings( ); } );
       appSettings.ports.updateSamplingDebug.subscribe( b => env.updateSamplingDebug( b ) );
 
-
       env.triggerCameraUpdate( );
 
-      fetch( 'bunny.obj' ).then( f => f.text( ) ).then( s => {
-        let triangles = parseObj( s );
-        let numVertices = triangles.vertices.length / 3;
-        for ( let i = 0; i < numVertices; i++ ) {
-          triangles.vertices[ i * 3 + 0 ] *= 8;
-          triangles.vertices[ i * 3 + 1 ] *= 8;
-          triangles.vertices[ i * 3 + 2 ] *= -8;
-        }
-        env.storeMesh( MeshId.BUNNY_LOW, triangles );
-      } );
       fetch( 'bunny2.obj' ).then( f => f.text( ) ).then( s => {
         let triangles = parseObj( s );
         let numVertices = triangles.vertices.length / 3;

@@ -2,7 +2,6 @@ use crate::math::{Vec2, Vec3};
 use crate::graphics::Material;
 use crate::graphics::ray::{Ray, Tracable, Bounded, Hit};
 use crate::graphics::AABB;
-use crate::rng::Rng;
 
 /// An axis-aligned box
 #[derive(Debug, Clone)]
@@ -39,6 +38,7 @@ impl AARect {
 }
 
 impl Bounded for AARect {
+  /// See `Bounded::location()`
   fn location( &self ) -> Option< Vec3 > {
     Some( Vec3::new(
       0.5 * ( self.x_min + self.x_max )
@@ -47,6 +47,7 @@ impl Bounded for AARect {
     ) )
   }
 
+  /// See `Bounded::aabb()`
   fn aabb( &self ) -> Option< AABB > {
     Some( AABB::new1(
         self.x_min
@@ -61,14 +62,12 @@ impl Bounded for AARect {
 }
 
 impl Tracable for AARect {
-  fn pick_random( &self, rng : &mut Rng ) -> (Vec3, Vec3, Vec3) {
-    panic!( "Not implemented" );
-  }
-
+  /// See `Tracable::is_emissive()`
   fn is_emissive( &self ) -> bool {
     self.mat.is_emissive( )
   }
 
+  /// See `Tracable::trace()`
   fn trace( &self, ray: &Ray ) -> Option< Hit > {
     let invdx = 1.0 / ray.dir.x;
     let invdy = 1.0 / ray.dir.y;
@@ -139,6 +138,7 @@ impl Tracable for AARect {
     }
   }
 
+  /// See `Tracable::trace_simple()`
   fn trace_simple( &self, ray : &Ray ) -> Option< f32 > {
     let invdx = 1.0 / ray.dir.x;
     let invdy = 1.0 / ray.dir.y;
