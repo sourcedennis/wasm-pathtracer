@@ -45,6 +45,11 @@ pub struct RenderInstance {
 
   sampling_strategy : Box< dyn SamplingStrategy >,
 
+  // If true, renders the selected photons in "debug-mode"
+  // Which means at each sample, it renders the verbatim color of the selected
+  // light source.
+  is_debug_photons  : bool,
+
   photons     : PhotonTree,
   num_photons : usize
 }
@@ -56,6 +61,7 @@ impl RenderInstance {
             , camera            : Rc< RefCell< Camera > >
             , rng               : Rc< RefCell< Rng > >
             , sampling_strategy : Box< dyn SamplingStrategy >
+            , is_debug_photons  : bool
             , target            : Rc< RefCell< RenderTarget > >
             , option            : RenderType
             ) -> RenderInstance {
@@ -63,6 +69,7 @@ impl RenderInstance {
     let mut ins = RenderInstance {
         option, camera, scene, rng, num_bvh_hits: 0, target
       , sampling_strategy
+      , is_debug_photons
       , photons:            PhotonTree::new( num_lights )
       , num_photons:        0
       };
@@ -87,19 +94,26 @@ impl RenderInstance {
     self.num_photons = 0;
     self.photons     = PhotonTree::new( scene.lights.len( ) );
     self.scene       = scene;
+    self.reset( );
   }
 
   pub fn compute( &mut self, num_ticks : usize ) {
-    let total_photons_needed = 200000;
+    let total_photons_needed = 300000;
 
     if self.option == RenderType::PNEE && self.num_photons < total_photons_needed {
       let num_to_compute = ( total_photons_needed - self.num_photons ).min( num_ticks * 32 );
+      // Note that calling this may not actually hit `num_to_compute` photons
+      // it only shoots them, but they're only counted when hit
       self.preprocess_photons( num_to_compute );
-      self.num_photons += num_to_compute;
 
-      if num_ticks * 32 > num_to_compute {
-        self.compute_rays( num_ticks - num_to_compute / 32 );
+      let mut ticks_left = num_ticks - num_to_compute / 32;
+      while ticks_left > 0 && self.num_photons < total_photons_needed {
+        let num_to_compute = ( total_photons_needed - self.num_photons ).min( ticks_left * 32 );
+        self.preprocess_photons( num_to_compute );
+        ticks_left -= num_to_compute / 32;
       }
+
+      self.compute_rays( ticks_left );
     } else {
       self.compute_rays( num_ticks );
     }
@@ -109,7 +123,7 @@ impl RenderInstance {
     let mut rng = self.rng.borrow_mut( );
     let scene   = &self.scene;
 
-    if let Some( b ) = self.scene.scene_bounds( ) {
+    //if let Some( b ) = self.scene.scene_bounds( ) {
       for _i in 0..num_ticks {
         let light_id = rng.next_in_range( 0, scene.lights.len( ) );
         match &scene.lights[ light_id ] {
@@ -132,7 +146,7 @@ impl RenderInstance {
           }
         }
       }
-    }
+    //}
   }
 
   fn compute_rays( &mut self, num_ticks : usize ) {
@@ -225,7 +239,11 @@ impl RenderInstance {
 
         match hit.mat {
           PointMaterial::Emissive { intensity } => {
-            if !has_nee || !has_diffuse_bounced {
+            if self.is_debug_photons {
+              if !has_diffuse_bounced {
+                color += throughput * intensity;
+              }
+            } else if !has_nee || !has_diffuse_bounced {
               color += throughput * intensity;
             } // otherwise NEE is enabled, so ignore it
             return color;
@@ -271,19 +289,20 @@ impl RenderInstance {
                   let cos_o = (-to_light).dot( light_normal );
 
                   if cos_i > 0.0 && cos_o > 0.0 {
-                    let (num_bvh_hits, is_occluded) = scene.shadow_ray( &hit_point, &point_on_light, Some( light_shape_id ) );
-                    self.num_bvh_hits += num_bvh_hits;
+                    if self.is_debug_photons {
+                      // Physically *inaccurate* light-selection debug render
+                      color += throughput * intensity;
+                    } else {
+                      let (num_bvh_hits, is_occluded) = scene.shadow_ray( &hit_point, &point_on_light, Some( light_shape_id ) );
+                      self.num_bvh_hits += num_bvh_hits;
 
-                    if !is_occluded {
-                      let solid_angle = ( light_shape.surface_area( ) * cos_o ) / dis_sq;
-
-                      color += throughput * intensity * solid_angle * cos_i * ( 1.0 / light_chance );
-                      //color += throughput * intensity;
+                      if !is_occluded {
+                        let solid_angle = ( light_shape.surface_area( ) * cos_o ) / dis_sq;
+  
+                        color += throughput * intensity * solid_angle * cos_i * ( 1.0 / light_chance );
+                      }
                     }
                   }
-                  // if light_id == 0 || light_id == 1 {
-                  //   color += throughput * intensity;
-                  // }
                 }
               }
             }

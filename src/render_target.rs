@@ -70,6 +70,12 @@ impl RenderTarget {
     self.acc_buffer[ i ] / self.acc_count[ i ] as f32
   }
 
+  /// Reads the averaged value (over all samples) for the given pixel
+  pub fn read_clamped( &self, x : usize, y : usize ) -> Vec3 {
+    let i = self.viewport_width * y + x;
+    clamp( self.acc_buffer[ i ] / self.acc_count[ i ] as f32 )
+  }
+
   /// Returns a reference to the averaged pixel buffer
   pub fn results< 'a >( &'a self ) -> &'a Vec< u8 > {
     &self.result
@@ -127,7 +133,54 @@ impl RenderTarget {
     if x < 0 || y < 0 || x >= self.viewport_width as i32 || y >= self.viewport_height as i32 {
       ( 0.0, Vec3::ZERO )
     } else {
-      ( mul, mul * self.read( x as usize, y as usize ) )
+      ( mul, mul * self.read_clamped( x as usize, y as usize ) )
     }
   }
+}
+
+/// A pixel buffer
+pub struct SimpleRenderTarget {
+  pub viewport_width  : usize,
+  pub viewport_height : usize,
+  result              : Vec< u8 >
+}
+
+impl SimpleRenderTarget {
+  /// Constructs a new render target with the given viewport size
+  pub fn new( viewport_width : usize, viewport_height : usize ) -> SimpleRenderTarget {
+    let mut result = vec![ 0; viewport_width * viewport_height * 4 ];
+
+    for i in 0..(viewport_width * viewport_height) {
+      result[ i * 4 + 3 ] = 255;
+    }
+
+    SimpleRenderTarget { viewport_width, viewport_height, result }
+  }
+
+  /// Clears the render target
+  pub fn clear( &mut self ) {
+    for i in 0..(self.viewport_width * self.viewport_height) {
+      self.result[ i * 4 + 0 ] = 0;
+      self.result[ i * 4 + 1 ] = 0;
+      self.result[ i * 4 + 2 ] = 0;
+    }
+  }
+
+  /// Writes the given value *for a single sample* to the target
+  pub fn write( &mut self, x : usize, y : usize, v : Vec3 ) {
+    let i = self.viewport_width * y + x;
+
+    self.result[ i * 4 + 0 ] = ( ( v.x as f32 ).min( 1.0 ).max( 0.0 ) * 255.0 ) as u8;
+    self.result[ i * 4 + 1 ] = ( ( v.y as f32 ).min( 1.0 ).max( 0.0 ) * 255.0 ) as u8;
+    self.result[ i * 4 + 2 ] = ( ( v.z as f32 ).min( 1.0 ).max( 0.0 ) * 255.0 ) as u8;
+  }
+
+  /// Returns a reference to the averaged pixel buffer
+  pub fn results< 'a >( &'a self ) -> &'a Vec< u8 > {
+    &self.result
+  }
+}
+
+fn clamp( v : Vec3 ) -> Vec3 {
+  Vec3::new( v.x.max( 0.0 ).min( 1.0 ), v.y.max( 0.0 ).min( 1.0 ), v.z.max( 0.0 ).min( 1.0 ) )
 }

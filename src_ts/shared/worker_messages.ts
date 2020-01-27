@@ -58,6 +58,21 @@ export interface MsgC2WResume extends Msg {
   type : 'resume'
 }
 
+export interface MsgC2WUpdateSettings extends Msg {
+  type            : 'update_settings',
+  leftType        : number, //0=NoNEE, 1=NEE, 2=PNEE
+  rightType       : number,
+  isLeftAdaptive  : boolean,
+  isRightAdaptive : boolean,
+  isLightDebug    : boolean
+}
+
+export interface MsgC2WUpdateViewType {
+  type                      : 'update_view_type',
+  // If true, show the sampling strategy. Otherwise show the diffuse buffer
+  isShowingSamplingStrategy : boolean
+}
+
 // export interface MsgC2WRebuildBVH extends Msg {
 //   type    : 'rebuild_bvh',
 //   numBins : number,

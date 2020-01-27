@@ -1,7 +1,8 @@
 import { Camera }    from '@s/graphics/camera';
 import { Triangles } from '@s/graphics/triangles';
 import { Texture }   from '@s/graphics/texture';
-import { MsgC2WInit, MsgC2WPause, MsgC2WResume, MsgC2WUpdateViewport, MsgC2WUpdateScene, MsgC2WUpdateCamera, MsgC2WStoreMesh, MsgC2WStoreTexture } from '@s/worker_messages';
+import { MsgC2WInit, MsgC2WPause, MsgC2WResume, MsgC2WUpdateViewport, MsgC2WUpdateScene
+       , MsgC2WUpdateCamera, MsgC2WStoreMesh, MsgC2WStoreTexture, MsgC2WUpdateSettings, MsgC2WUpdateViewType } from '@s/worker_messages';
 import { Observable, XObservable } from '@s/event/observable';
 
 // Renders a scene on a background WebWorker.
@@ -79,6 +80,19 @@ export class BackgroundPathTracer {
   //   (Otherwise WebWorkers may remain lingering zombies)
   public destroy( ): void {
     this._worker.terminate( );
+  }
+
+  public updateSettings(
+        leftType : number, rightType : number
+      , isLeftAdaptive : boolean, isRightAdaptive : boolean
+      , isLightDebug : boolean ) {
+    let msg : MsgC2WUpdateSettings = { type: 'update_settings', leftType, rightType, isLeftAdaptive, isRightAdaptive, isLightDebug };
+    this._worker.postMessage( msg );
+  }
+
+  public updateViewType( isShowingSamplingStrategy : boolean ) {
+    let msg : MsgC2WUpdateViewType = { type: 'update_view_type', isShowingSamplingStrategy };
+    this._worker.postMessage( msg );
   }
 
   // Updates the scene that is rendered.

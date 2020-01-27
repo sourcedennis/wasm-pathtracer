@@ -1,7 +1,8 @@
 import { Msg, MsgC2WInit, MsgC2WUpdateCamera
        , MsgC2WUpdateScene, MsgW2CInitDone, MsgW2CComputeDone
        , MsgC2WStoreMesh, MsgC2WStoreTexture
-       , MsgC2WPause, MsgC2WResume, MsgC2WUpdateViewport
+       , MsgC2WPause, MsgC2WResume, MsgC2WUpdateViewport, MsgC2WUpdateSettings
+       , MsgC2WUpdateViewType
        } from '@s/worker_messages';
 import { MsgHandler } from './msg_handler';
 import { Camera } from '@s/graphics/camera';
@@ -24,18 +25,25 @@ let hasUpdatedCamera   : boolean = false;
 let hasUpdatedViewport : boolean = false;
 let camera             : Camera;
 
+// If false, it shows the normal diffuse pixel buffer. If true, the
+// sample-frequency of pixels is shown instead.
+// (green is below average, blue is average, red is above average)
+let isShowingSamplingStrategy : boolean = false;
+
 // The worker handles messages from the main thread
 // These typically pass information along to the WASM module
 //   and return a confirmation message.
 const handlers = new MsgHandler( );
-handlers.register( 'init',            handleInit );
-handlers.register( 'update_viewport', handleUpdateViewport );
-handlers.register( 'update_camera',   handleUpdateCamera );
-handlers.register( 'update_scene',    handleUpdateScene );
-handlers.register( 'store_mesh',      handleStoreMesh );
-handlers.register( 'store_texture',   handleStoreTexture );
-handlers.register( 'pause',           handlePause );
-handlers.register( 'resume',          handleResume );
+handlers.register( 'init',             handleInit );
+handlers.register( 'update_viewport',  handleUpdateViewport );
+handlers.register( 'update_camera',    handleUpdateCamera );
+handlers.register( 'update_scene',     handleUpdateScene );
+handlers.register( 'update_settings',  handleUpdateSettings );
+handlers.register( 'update_view_type', handleUpdateViewType );
+handlers.register( 'store_mesh',       handleStoreMesh );
+handlers.register( 'store_texture',    handleStoreTexture );
+handlers.register( 'pause',            handlePause );
+handlers.register( 'resume',           handleResume );
 
 onmessage = ev => {
   handlers.handle( ev.data );
@@ -73,7 +81,7 @@ function run( ) {
   }
 
   // Store the result in shared memory
-  let resPtr = instance.exports.results( );
+  let resPtr = instance.exports.results( isShowingSamplingStrategy );
   let mem8 = new Uint8Array( instance.exports.memory.buffer, resPtr, width * height * 4 );
   buffer.set( mem8, 0 );
 
@@ -140,6 +148,23 @@ function handleUpdateCamera( msg : MsgC2WUpdateCamera ) {
 function handleUpdateScene( msg : MsgC2WUpdateScene ) {
   instance.exports.update_scene( msg.sceneId );
   // Updating the scene makes it black. Redraw it
+  postMessage( < MsgW2CComputeDone > { type: 'compute_done' } );
+}
+
+function handleUpdateSettings( msg : MsgC2WUpdateSettings ) {
+  instance.exports.update_settings( msg.leftType, msg.rightType, msg.isLeftAdaptive ? 1 : 0, msg.isRightAdaptive ? 1 : 0, msg.isLightDebug ? 1 : 0 );
+}
+
+function handleUpdateViewType( msg : MsgC2WUpdateViewType ) {
+  isShowingSamplingStrategy = msg.isShowingSamplingStrategy;
+  console.log( 'isss', isShowingSamplingStrategy );
+
+  // Store the result in shared memory
+  let resPtr = instance.exports.results( isShowingSamplingStrategy ? 1 : 0 );
+  let mem8 = new Uint8Array( instance.exports.memory.buffer, resPtr, width * height * 4 );
+  buffer.set( mem8, 0 );
+
+  // And notify the main thread, to write the shared buffer to the screen
   postMessage( < MsgW2CComputeDone > { type: 'compute_done' } );
 }
 

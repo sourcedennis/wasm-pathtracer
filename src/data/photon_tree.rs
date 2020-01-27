@@ -18,7 +18,7 @@ pub struct PhotonTree {
 }
 
 type LightId = usize;
-static MAX_PHOTONS_IN_CELL : usize = 256;
+static MAX_PHOTONS_IN_CELL : usize = 4096;
 
 enum Octree {
   Node {
@@ -61,47 +61,55 @@ impl PhotonTree {
 
   pub fn sample( &mut self, rng : &mut Rng, v : Vec3 ) -> (LightId, f32) {
     // Interpolate the CDFs
+
+    if v.x < -self.size || v.y < -self.size || v.z < -self.size || v.x > self.size || v.y > self.size || v.z > self.size {
+      return ( rng.next_in_range(0, self.num_lights), 1.0 / self.num_lights as f32 );
+    }
     
     let self_bounds = AABB::new1( -self.size, -self.size, -self.size, self.size, self.size, self.size );
     let (_, bounds, depth) = self.root.find_leaf( self_bounds, 0, v );
-
+    
     let (weight_x, weight_adj_x, x_off) =
       if v.x > bounds.center( ).x { // Go to the right
-        let left_weight  = bounds.x_max - ( v.x - bounds.x_size( ) * 0.5 );
-        let right_weight = bounds.x_size( ) - left_weight;
+        let left_weight  = ( bounds.x_max - ( v.x - bounds.x_size( ) * 0.5 ) ) / bounds.x_size( );
+        let right_weight = 1.0 - left_weight;
         ( left_weight, right_weight, 1.0 )
       } else { // Go to the left
-        let right_weight = ( v.x + bounds.x_size( ) * 0.5 ) - bounds.x_min;
-        let left_weight  = bounds.x_size( ) - right_weight;
+        let right_weight = ( ( v.x + bounds.x_size( ) * 0.5 ) - bounds.x_min ) / bounds.x_size( );
+        let left_weight  = 1.0 - right_weight;
         ( right_weight, left_weight, -1.0 )
       };
+    assert!( weight_x >= 0.0 && weight_x <= 1.0 && weight_adj_x >= 0.0 && weight_adj_x <= 1.0 );
       
     let (weight_y, weight_adj_y, y_off) =
       if v.y > bounds.center( ).y { // Go to the right
-        let left_weight  = bounds.y_max - ( v.y - bounds.y_size( ) * 0.5 );
-        let right_weight = bounds.y_size( ) - left_weight;
+        let left_weight  = ( bounds.y_max - ( v.y - bounds.y_size( ) * 0.5 ) ) / bounds.y_size( );
+        let right_weight = 1.0 - left_weight;
         ( left_weight, right_weight, 1.0 )
       } else { // Go to the left
-        let right_weight = ( v.y + bounds.y_size( ) * 0.5 ) - bounds.y_min;
-        let left_weight  = bounds.y_size( ) - right_weight;
+        let right_weight = ( ( v.y + bounds.y_size( ) * 0.5 ) - bounds.y_min ) / bounds.y_size( );
+        let left_weight  = 1.0 - right_weight;
         ( right_weight, left_weight, -1.0 )
       };
+    assert!( weight_y >= 0.0 && weight_y <= 1.0 && weight_adj_y >= 0.0 && weight_adj_y <= 1.0 );
       
     let (weight_z, weight_adj_z, z_off) =
       if v.z > bounds.center( ).z { // Go to the right
-        let left_weight  = bounds.z_max - ( v.z - bounds.z_size( ) * 0.5 );
-        let right_weight = bounds.z_size( ) - left_weight;
+        let left_weight  = ( bounds.z_max - ( v.z - bounds.z_size( ) * 0.5 ) ) / bounds.z_size( );
+        let right_weight = 1.0 - left_weight;
         ( left_weight, right_weight, 1.0 )
       } else { // Go to the left
-        let right_weight = ( v.z + bounds.z_size( ) * 0.5 ) - bounds.z_min;
-        let left_weight  = bounds.z_size( ) - right_weight;
+        let right_weight = ( ( v.z + bounds.z_size( ) * 0.5 ) - bounds.z_min ) / bounds.z_size( );
+        let left_weight  = 1.0 - right_weight;
         ( right_weight, left_weight, -1.0 )
       };
+    assert!( weight_z >= 0.0 && weight_z <= 1.0 && weight_adj_z >= 0.0 && weight_adj_z <= 1.0 );
+    //assert!( weight_z >= 0.0 && weight_z <= 1.0 && weight_adj_z >= 0.0 && weight_adj_z <= 1.0 );
     
     // Sample from it's own Octree cell? (Or from it's adjacent)
-    let sample_self_x = rng.next( ) * ( weight_adj_x + weight_x ) <= weight_x;
-    let sample_self_y = rng.next( ) * ( weight_adj_y + weight_y ) <= weight_y;
-    let sample_self_z = rng.next( ) * ( weight_adj_z + weight_z ) <= weight_z;
+    let sample_self_x = rng.next( ) <= weight_x;
+    let sample_self_y = rng.next( ) <= weight_y;
+    let sample_self_z = rng.next( ) <= weight_z;
 
     let sampled_v   =
       v +
@@ -115,22 +123,20 @@ impl PhotonTree {
     // Now find the PDF weighted over all neighbours
     let mut pdf = 0.0;
 
-    let inv_weight_sum = 1.0 / ( ( weight_x + weight_adj_x ) * ( weight_y + weight_adj_y ) * ( weight_z + weight_adj_z ) );
-
     let ajx = bounds.x_size( ) * x_off;
     let ajy = bounds.y_size( ) * y_off;
     let ajz = bounds.z_size( ) * z_off;
 
     // println!( "{:?}", self.root.find_node_cdf( self_bounds, depth, v + Vec3::new( 0.0, ajy, 0.0 ) ) );
 
-    pdf += self.root.find_node_cdf( self_bounds, depth, v ).bin_prob( res ) * weight_x * weight_y * weight_z * inv_weight_sum;
-    pdf += self.root.find_node_cdf( self_bounds, depth, v + Vec3::new( ajx, 0.0, 0.0 ) ).bin_prob( res ) * weight_adj_x * weight_y * weight_z * inv_weight_sum;
-    pdf += self.root.find_node_cdf( self_bounds, depth, v + Vec3::new( 0.0, ajy, 0.0 ) ).bin_prob( res ) * weight_x * weight_adj_y * weight_z * inv_weight_sum;
-    pdf += self.root.find_node_cdf( self_bounds, depth, v + Vec3::new( 0.0, 0.0, ajz ) ).bin_prob( res ) * weight_x * weight_y * weight_adj_z * inv_weight_sum;
-    pdf += self.root.find_node_cdf( self_bounds, depth, v + Vec3::new( ajx, ajy, 0.0 ) ).bin_prob( res ) * weight_adj_x * weight_adj_y * weight_z * inv_weight_sum;
-    pdf += self.root.find_node_cdf( self_bounds, depth, v + Vec3::new( 0.0, ajy, ajz ) ).bin_prob( res ) * weight_x * weight_adj_y * weight_adj_z * inv_weight_sum;
-    pdf += self.root.find_node_cdf( self_bounds, depth, v + Vec3::new( ajx, 0.0, ajz ) ).bin_prob( res ) * weight_adj_x * weight_y * weight_adj_z * inv_weight_sum;
-    pdf += self.root.find_node_cdf( self_bounds, depth, v + Vec3::new( ajx, ajy, ajz ) ).bin_prob( res ) * weight_adj_x * weight_adj_y * weight_adj_z * inv_weight_sum;
+    pdf += self.root.find_node_cdf( self_bounds, depth, v ).bin_prob( res ) * weight_x * weight_y * weight_z;
+    pdf += self.root.find_node_cdf( self_bounds, depth, v + Vec3::new( ajx, 0.0, 0.0 ) ).bin_prob( res ) * weight_adj_x * weight_y * weight_z;
+    pdf += self.root.find_node_cdf( self_bounds, depth, v + Vec3::new( 0.0, ajy, 0.0 ) ).bin_prob( res ) * weight_x * weight_adj_y * weight_z;
+    pdf += self.root.find_node_cdf( self_bounds, depth, v + Vec3::new( 0.0, 0.0, ajz ) ).bin_prob( res ) * weight_x * weight_y * weight_adj_z;
+    pdf += self.root.find_node_cdf( self_bounds, depth, v + Vec3::new( ajx, ajy, 0.0 ) ).bin_prob( res ) * weight_adj_x * weight_adj_y * weight_z;
+    pdf += self.root.find_node_cdf( self_bounds, depth, v + Vec3::new( 0.0, ajy, ajz ) ).bin_prob( res ) * weight_x * weight_adj_y * weight_adj_z;
+    pdf += self.root.find_node_cdf( self_bounds, depth, v + Vec3::new( ajx, 0.0, ajz ) ).bin_prob( res ) * weight_adj_x * weight_y * weight_adj_z;
+    pdf += self.root.find_node_cdf( self_bounds, depth, v + Vec3::new( ajx, ajy, ajz ) ).bin_prob( res ) * weight_adj_x * weight_adj_y * weight_adj_z;
 
     (res, pdf)
   }

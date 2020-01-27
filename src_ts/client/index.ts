@@ -26,6 +26,13 @@ class Global {
   // The actual path tracer (runs in a background WebWorker)
   private          _tracer           : BackgroundPathTracer;
 
+  // Settings
+  public leftType        : number; //0=NoNEE, 1=NEE, 2=PNEE
+  public rightType       : number;
+  public isLeftAdaptive  : boolean;
+  public isRightAdaptive : boolean;
+  public isLightDebug    : boolean;
+
   // The on-screen canvas
   private readonly _canvas : HTMLCanvasElement;
 
@@ -40,6 +47,12 @@ class Global {
     this._mod     = mod;
     this._cameraController =
       new CameraController( sceneCamera( sceneId ));
+
+    this.leftType        = 1;
+    this.rightType       = 2;
+    this.isLeftAdaptive  = false;
+    this.isRightAdaptive = true;
+    this.isLightDebug    = false;
 
     this._target     = new RenderTarget( initialWidth, initialHeight );
     this._canvasElem = new CanvasElement( canvas, this._target );
@@ -93,6 +106,14 @@ class Global {
     this._target = new RenderTarget( width, height );
     this._canvasElem.updateTarget( this._target );
     this._tracer.updateViewport( width, height );
+  }
+
+  public updateSettings( ) {
+    this._tracer.updateSettings( this.leftType, this.rightType, this.isLeftAdaptive, this.isRightAdaptive, this.isLightDebug );
+  }
+
+  public updateSamplingDebug( v : boolean ) {
+    this._tracer.updateViewType( v );
   }
 
   // Meshes can only be loaded by JavaScript, yet they need to be passed
@@ -176,10 +197,18 @@ document.addEventListener( 'DOMContentLoaded', ev => {
       const appScenes = ElmScene.PanelScenes.init( { node: scenePanel } );
       appScenes.ports.updateScene.subscribe( sid => env.updateScene( sid ) );
 
+      // this._tracer.updateSettings( this.leftType, this.rightType, this.isLeftAdaptive, this.isRightAdaptive, this.isLightDebug );
       let settingsPanel = document.getElementById( 'settingspanel' );
       const appSettings = ElmSettings.PanelSettings.init( { node: settingsPanel } );
       appSettings.ports.updateRunning.subscribe( r => env.updateRunning( r ) );
       appSettings.ports.updateViewport.subscribe( vp => env.updateViewport( vp[ 0 ], vp[ 1 ] ) );
+      appSettings.ports.updateLeftRenderType.subscribe( t => { env.leftType = t; env.updateSettings( ); } );
+      appSettings.ports.updateRightRenderType.subscribe( t => { env.rightType = t; env.updateSettings( ); } );
+      appSettings.ports.updateLeftAdaptive.subscribe( b => { env.isLeftAdaptive = b; env.updateSettings( ); } );
+      appSettings.ports.updateRightAdaptive.subscribe( b => { env.isRightAdaptive = b; env.updateSettings( ); } );
+      appSettings.ports.updateLightDebug.subscribe( b => { env.isLightDebug = b; env.updateSettings( ); } );
+      appSettings.ports.updateSamplingDebug.subscribe( b => env.updateSamplingDebug( b ) );
+
 
       env.triggerCameraUpdate( );
 
