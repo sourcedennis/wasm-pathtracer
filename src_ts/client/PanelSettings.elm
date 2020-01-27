@@ -2,13 +2,12 @@ port module PanelSettings exposing (main)
 
 import Browser
 import Html            exposing
-  (Html, Attribute, h2, hr, br, div, text, span, button, table, tr, td, th, input)
+  (Html, Attribute, h2, hr, br, div, text, span, button, table, tr, td, input)
 import Html.Attributes as Attr exposing (class, id, style, type_)
 import Html.Events     exposing (onClick, onInput, onBlur, on, keyCode)
 import String          exposing (fromInt, toInt)
-import Maybe           exposing (withDefault, andThen)
+import Maybe           exposing (withDefault)
 import Json.Decode     as D
-import String          exposing (length)
 
 -- This is the GUI sidepanel with which runtime parameters of the raytracer
 -- can be set. The TypeScript instance listens to the ports provided by this
@@ -17,31 +16,26 @@ import String          exposing (length)
 -- The ports. Note that only primitive types can be passed across
 -- So, some "magic number" (for RenderType) are passed to TypeScript
 -- Outgoing ports
-port updateRenderType      : Int -> Cmd msg
-port updateBVHState        : Int -> Cmd msg
-port updateReflectionDepth : Int -> Cmd msg
+port updateLeftRenderType  : Int -> Cmd msg
+port updateRightRenderType : Int -> Cmd msg
+port updateLeftAdaptive    : Bool -> Cmd msg
+port updateRightAdaptive   : Bool -> Cmd msg
+port updateLightDebug      : Bool -> Cmd msg
+-- -- If true, show the sampling strategy. If false, show the diffuse buffer
+port updateSamplingDebug   : Bool -> Cmd msg
 port updateRunning         : Bool -> Cmd msg
-port updateMulticore       : Bool -> Cmd msg
 port updateViewport        : (Int, Int) -> Cmd msg
--- Incoming ports
-port updatePerformance     : ( (Int, Int, Int) -> msg ) -> Sub msg
--- Number of milliseconds it took to build the BVH
-port updateBVHTime         : ( Int -> msg ) -> Sub msg
--- Number of nodes in the BVH
-port updateBVHCount        : ( Int -> msg ) -> Sub msg
--- Number of ray hits with BVH nodes in the current frame
-port updateBVHHits         : ( Int -> msg ) -> Sub msg
 
 -- The state of the side panel
 type alias Model =
-  { renderType      : RenderType
-  , reflectionDepth : Int
-    -- Render time over the last second
-  , performanceAvg  : Int
-  , performanceMin  : Int
-  , performanceMax  : Int
+  { leftRenderType  : RenderType
+  , rightRenderType : RenderType
 
-  , bvh             : BVHModel
+  , isLeftAdaptive  : Bool
+  , isRightAdaptive : Bool
+
+  , isLightDebug    : Bool
+  , isSamplingDebug : Bool
 
   , width           : Int
   , height          : Int
@@ -51,31 +45,18 @@ type alias Model =
   , sentWidth       : Int
   , sentHeight      : Int
 
-  , isMulticore     : Bool
-
   , isRunning       : Bool
   }
 
-type BVHModel
-  = BVHModel { time     : Maybe Int
-             , numNodes : Maybe Int
-             , numHits  : Maybe Int
-             , isBvh4   : Bool
-             }
-  | BVHNoModel
-
-type RenderType = RenderColor | RenderDepth | RenderBvh
+type RenderType = RenderNoNEE | RenderNEE | RenderPNEE
 
 type Msg
-  = UpdatePerformance Int Int Int -- render times: avg min max
-  | UpdateBVHTime Int -- construction time in ms
-  | UpdateBVHCount Int -- #nodes in the BVH
-  | UpdateBVHHits Int  -- #hits with rays to BVHs
-  | SelectType RenderType
-  | SelectReflectionDepth Int
-  | SelectMulticore Bool
-  | SelectBVH Bool
-  | DisabledBVH
+  = SelectLeftType  RenderType
+  | SelectRightType RenderType
+  | SelectLeftAdaptive Bool
+  | SelectRightAdaptive Bool
+  | SelectLightDebug Bool
+  | SelectSamplingDebug Bool
   | SelectRunning Bool -- Play/Pause (Play=True)
   | ChangeWidth Int
   | ChangeHeight Int
@@ -93,60 +74,45 @@ main =
 
 subscriptions : Model -> Sub Msg
 subscriptions _ =
-  Sub.batch
-    [ updatePerformance <| \(x,y,z) -> UpdatePerformance x y z
-    , updateBVHTime <| UpdateBVHTime
-    , updateBVHCount <| UpdateBVHCount
-    , updateBVHHits <| UpdateBVHHits
-    ]
+  Sub.none
 
 init : Model
 init =
-  { renderType      = RenderColor
-  , reflectionDepth = 1
-  , performanceAvg  = 0
-  , performanceMin  = 0
-  , performanceMax  = 0
-  , bvh             = BVHModel { time = Nothing, numNodes = Nothing, numHits = Nothing, isBvh4 = False }
+  { leftRenderType  = RenderNEE
+  , rightRenderType = RenderPNEE
+  , isLeftAdaptive  = False
+  , isRightAdaptive = True
+  , isLightDebug    = False
+  , isSamplingDebug = False
   , width           = 512
   , height          = 512
   , sentWidth       = 512
   , sentHeight      = 512
-  , isMulticore     = True
   , isRunning       = True
   }
+
+rtInt : RenderType -> Int
+rtInt t =
+  case t of
+    RenderNoNEE -> 0
+    RenderNEE   -> 1
+    RenderPNEE  -> 2
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
-    SelectBVH b ->
-      let bvh =
-            BVHModel { time = Nothing, numNodes = Nothing, numHits = Nothing, isBvh4 = b }
-      in
-      ( { model | bvh = bvh }, updateBVHState (if b then 2 else 1) )
-    DisabledBVH ->
-      ( { model | bvh = BVHNoModel }, updateBVHState 0 )
-    UpdateBVHTime t ->
-      ( { model | bvh = updateBVH msg model.bvh }, Cmd.none )
-    UpdateBVHCount h ->
-      ( { model | bvh = updateBVH msg model.bvh }, Cmd.none )
-    UpdateBVHHits h ->
-      ( { model | bvh = updateBVH msg model.bvh }, Cmd.none )
-
-    UpdatePerformance avg low high ->
-      ( { model | performanceAvg = avg, performanceMin = low, performanceMax = high }, Cmd.none )
-    SelectType t ->
-      let rtInt =
-            case t of
-              RenderColor -> 0
-              RenderDepth -> 1
-              RenderBvh   -> 2
-      in
-      ( { model | renderType = t }, updateRenderType rtInt )
-    SelectReflectionDepth t ->
-      ( { model | reflectionDepth = t }, updateReflectionDepth t )
-    SelectMulticore b ->
-      ( { model | isMulticore = b }, updateMulticore b )
+    SelectLeftType t ->
+      ( { model | leftRenderType = t }, updateLeftRenderType (rtInt t) )
+    SelectRightType t ->
+      ( { model | rightRenderType = t }, updateRightRenderType (rtInt t) )
+    SelectLeftAdaptive b ->
+      ( { model | isLeftAdaptive = b }, updateLeftAdaptive b )
+    SelectRightAdaptive b ->
+      ( { model | isRightAdaptive = b }, updateRightAdaptive b )
+    SelectLightDebug b ->
+      ( { model | isLightDebug = b }, updateLightDebug b )
+    SelectSamplingDebug b ->
+      ( { model | isSamplingDebug = b }, updateSamplingDebug b )
     SelectRunning b ->
       ( { model | isRunning = b }, updateRunning b )
     ChangeWidth w ->
@@ -163,119 +129,100 @@ update msg model =
         ( { model | width = w, height = h }, Cmd.none )
     Skip -> ( model, Cmd.none )
 
-
-updateBVH : Msg -> BVHModel -> BVHModel
-updateBVH msg bvh =
-  case bvh of
-    BVHModel bm ->
-      case msg of
-        UpdateBVHTime t ->
-          BVHModel { bm | time = Just t }
-        UpdateBVHCount c ->
-          BVHModel { bm | numNodes = Just c }
-        UpdateBVHHits h ->
-          BVHModel { bm | numHits = Just h }
-        _ ->
-          BVHModel bm
-    BVHNoModel ->
-      BVHNoModel
-
 view : Model -> Html Msg
 view m =
   div [ class "sidepanel", id "settingspanel" ]
     [ h2 [] [ text "Settings" ]
     , hr [] []
+    , span [ style "font-family" "OpenSansLight, Arial", style "text-decoration" "underline" ] [ text "Render Type" ]
     , div []
-        [ span [] [ text "Render type" ]
-        , buttonC (m.renderType == RenderColor) (SelectType RenderColor)
-            [ class "choice", class "left", style "width" "70pt" ]
-            [ text "Color" ]
-        , buttonC (m.renderType == RenderDepth) (SelectType RenderDepth)
-            [ class "choice", class "middle", style "width" "70pt" ]
-            [ text "Depth" ]
-        , buttonC (m.renderType == RenderBvh) (SelectType RenderBvh)
-            [ class "choice", class "right", style "width" "70pt" ]
-            [ text "BVH" ]
-        ]
-    , div []
-        [ span [] [ text "Ray depth" ]
-        , buttonC (m.reflectionDepth == 0) (SelectReflectionDepth 0)
-            [ class "choice", class "top left", style "width" "40pt" ]
-            [ text "0" ]
-        , buttonC (m.reflectionDepth == 1) (SelectReflectionDepth 1)
-            [ class "choice", class "middle", style "width" "40pt" ]
-            [ text "1" ]
-        , buttonC (m.reflectionDepth == 2) (SelectReflectionDepth 2)
-            [ class "choice", class "top right", style "width" "40pt" ]
-            [ text "2" ]
-        , br [] []
-        , buttonC (m.reflectionDepth == 3) (SelectReflectionDepth 3)
-            [ class "choice", class "middle", style "width" "40pt", style "border-left" "none", style "border-top" "1px solid white" ]
-            [ text "3" ]
-        , buttonC (m.reflectionDepth == 4) (SelectReflectionDepth 4)
-            [ class "choice", class "middle", style "width" "40pt", style "border-top" "1px solid white" ]
-            [ text "4" ]
-        , buttonC (m.reflectionDepth == 5) (SelectReflectionDepth 5)
-            [ class "choice", class "middle", style "width" "40pt", style "border-top" "1px solid white" ]
-            [ text "5" ]
-        , br [] []
-        , buttonC (m.reflectionDepth == 6) (SelectReflectionDepth 6)
-            [ class "choice", class "bottom left", style "width" "40pt", style "border-left" "none", style "border-top" "1px solid white" ]
-            [ text "6" ]
-        , buttonC (m.reflectionDepth == 7) (SelectReflectionDepth 7)
-            [ class "choice", class "middle", style "width" "40pt", style "border-top" "1px solid white" ]
-            [ text "7" ]
-        , buttonC (m.reflectionDepth == 8) (SelectReflectionDepth 8)
-            [ class "choice", class "bottom right", style "width" "40pt", style "border-top" "1px solid white" ]
-            [ text "8" ]
-        ]
-    , div []
-        [ span [] [ text "Processor count" ]
-        , buttonC (not m.isMulticore) (SelectMulticore False)
-            [ class "choice", class "left", style "width" "90pt" ]
-            [ text "Single" ]
-        , buttonC m.isMulticore (SelectMulticore True)
-            [ class "choice", class "right", style "width" "90pt" ]
-            [ text "Multi (8)" ]
-        ]
-    , div []
-        ( [ span [] [ text "BVH" ]
-          , buttonC (isBvh2 m.bvh) (SelectBVH False)
-              [ class "choice", class "left", style "width" "70pt", style "padding-left" "27pt" ]
-              [ text "2-way" ]
-          , buttonC (isBvh4 m.bvh) (SelectBVH True)
-              [ class "choice", class "middle", style "width" "70pt", style "padding-left" "27pt" ]
-              [ text "4-way" ]
-          , buttonC (m.bvh == BVHNoModel) DisabledBVH
-              [ class "choice", class "right", style "width" "70pt", style "padding-left" "27pt" ]
-              [ text "Off" ]
+        [ table []
+          [ tr []
+            [ td []
+                [ span [] [ text "Left" ]
+                , buttonC (m.leftRenderType == RenderNoNEE) (SelectLeftType RenderNoNEE)
+                    [ class "choice", class "top", style "width" "80pt" ]
+                    [ text "No NEE" ]
+                , br [] []
+                , buttonC (m.leftRenderType == RenderNEE) (SelectLeftType RenderNEE)
+                    [ class "choice", class "middle", style "width" "81pt", style "margin-left" "-1px" ]
+                    [ text "NEE" ]
+                , br [] []
+                , buttonC (m.leftRenderType == RenderPNEE) (SelectLeftType RenderPNEE)
+                    [ class "choice", class "bottom", style "width" "80pt" ]
+                    [ text "PNEE" ]
+                ]
+            , td [ style "width" "10pt" ] []
+            , td []
+                [ span [] [ text "Right" ]
+                , buttonC (m.rightRenderType == RenderNoNEE) (SelectRightType RenderNoNEE)
+                    [ class "choice", class "top", style "width" "80pt" ]
+                    [ text "No NEE" ]
+                , br [] []
+                , buttonC (m.rightRenderType == RenderNEE) (SelectRightType RenderNEE)
+                    [ class "choice", class "middle", style "width" "81pt", style "margin-left" "-1px" ]
+                    [ text "NEE" ]
+                , br [] []
+                , buttonC (m.rightRenderType == RenderPNEE) (SelectRightType RenderPNEE)
+                    [ class "choice", class "bottom", style "width" "80pt" ]
+                    [ text "PNEE" ]
+                ]
+            ]
           ]
-          ++
-          case m.bvh of
-            BVHNoModel -> []
-            BVHModel bm ->
-              [ div []
-                  [ span []
-                      [ text "Build time: "
-                      , text (withDefault "- ms" (bm.time |> andThen (\t -> Just (fromInt t ++ " ms")) ))
-                      ]
-                  ]
-              , div []
-                  [ span []
-                      [ text "Node count: "
-                      , text (withDefault "-" (bm.numNodes |> andThen (Just << niceInt)))
-                      ]
-                  ]
-              , div []
-                  [ span []
-                      [ text "Hit count: "
-                      , text (withDefault "-" (bm.numHits |> andThen (Just << niceInt)))
-                      ]
-                  ]
-              ]
-        )
+        ]
+        
+    , span [ style "font-family" "OpenSansLight, Arial", style "text-decoration" "underline" ] [ text "Sampling" ]
     , div []
-        [ span [] [ text "Viewport" ]
+        [ table []
+          [ tr []
+            [ td []
+                [ span [] [ text "Left" ]
+                , buttonC (not m.isLeftAdaptive) (SelectLeftAdaptive False)
+                    [ class "choice", class "top", style "width" "80pt" ]
+                    [ text "Random" ]
+                , br [] []
+                , buttonC m.isLeftAdaptive (SelectLeftAdaptive True)
+                    [ class "choice", class "bottom", style "width" "80pt" ]
+                    [ text "Adaptive" ]
+                ]
+            , td [ style "width" "10pt" ] []
+            , td []
+                [ span [] [ text "Right" ]
+                , buttonC (not m.isRightAdaptive) (SelectRightAdaptive False)
+                    [ class "choice", class "top", style "width" "80pt" ]
+                    [ text "Random" ]
+                , br [] []
+                , buttonC m.isRightAdaptive (SelectRightAdaptive True)
+                    [ class "choice", class "bottom", style "width" "80pt" ]
+                    [ text "Adaptive" ]
+                ]
+            ]
+          ]
+        ]
+        
+    , span [ style "font-family" "OpenSansLight, Arial", style "text-decoration" "underline" ] [ text "Photon Debug" ]
+    , div []
+        [ buttonC (not m.isLightDebug) (SelectLightDebug False)
+            [ class "choice", class "left", style "width" "80pt" ]
+            [ text "PBR" ]
+        , buttonC m.isLightDebug (SelectLightDebug True)
+            [ class "choice", class "right", style "width" "100pt" ]
+            [ text "Photon" ]
+        ]
+
+    , span [ style "font-family" "OpenSansLight, Arial", style "text-decoration" "underline" ] [ text "Sampling Debug" ]
+    , span [ style "font-family" "OpenSansLight, Arial", style "margin-left" "4pt" ] [ text "(No restart)" ]
+    , div []
+        [ buttonC (not m.isSamplingDebug) (SelectSamplingDebug False)
+            [ class "choice", class "left", style "width" "80pt" ]
+            [ text "Diffuse" ]
+        , buttonC m.isSamplingDebug (SelectSamplingDebug True)
+            [ class "choice", class "right", style "width" "100pt" ]
+            [ text "Sampling" ]
+        ]
+
+    , div []
+        [ span [ style "text-decoration" "underline" ] [ text "Viewport" ]
         , table []
             [ tr []
                 [ td [] [ text "width" ]
@@ -296,14 +243,14 @@ view m =
                 ]
             ]
         ]
-    , div []
-        [ span [] [ text "Performance (in last second)" ]
-        , table []
-            [ tr [] [ th [] [ text "Average:" ], td [] [ span [] [ text <| fromInt m.performanceAvg ++ " ms" ] ] ]
-            , tr [] [ th [] [ text "Min:" ], td [] [ span [] [ text <| fromInt m.performanceMin ++ " ms" ] ] ]
-            , tr [] [ th [] [ text "Max:" ], td [] [ span [] [ text <| fromInt m.performanceMax ++ " ms" ] ] ]
-            ]
-        ]
+    -- , div []
+    --     [ span [] [ text "Performance (in last second)" ]
+    --     , table []
+    --         [ tr [] [ th [] [ text "Average:" ], td [] [ span [] [ text <| fromInt m.performanceAvg ++ " ms" ] ] ]
+    --         , tr [] [ th [] [ text "Min:" ], td [] [ span [] [ text <| fromInt m.performanceMin ++ " ms" ] ] ]
+    --         , tr [] [ th [] [ text "Max:" ], td [] [ span [] [ text <| fromInt m.performanceMax ++ " ms" ] ] ]
+    --         ]
+    --     ]
     , if m.isRunning then
         button [ onClick (SelectRunning False) ] [ text "Pause" ]
       else
@@ -320,33 +267,6 @@ onEnterDown m =
           _  -> Skip
   in
   on "keydown" (D.map enterMsg keyCode)
-
-niceInt : Int -> String
-niceInt n =
-  if n < 1000 then
-    fromInt n
-  else
-    niceInt (n // 1000) ++ "," ++ pad3z (fromInt (modBy 1000 n))
-
--- Pad zeroes *before* the string, such that it has 3 characters
-pad3z : String -> String
-pad3z s =
-  case length s of
-    1 -> "00" ++ s
-    2 -> "0" ++ s
-    _ -> s
-
-isBvh2 : BVHModel -> Bool
-isBvh2 m =
-  case m of
-    BVHModel bm -> not bm.isBvh4
-    _           -> False
-
-isBvh4 : BVHModel -> Bool
-isBvh4 m =
-  case m of
-    BVHModel bm -> bm.isBvh4
-    _           -> False
 
 -- A checkbox button. It's checked if the provided boolean is true
 -- Only unchecked button have the event assigned

@@ -3,6 +3,7 @@ use std::fmt;
 // Local imports
 use crate::math::Vec3;
 use crate::graphics::{PointMaterial, AABB, Color3};
+use crate::rng::Rng;
 
 // A module with `Ray` and `Hit` structures, that are useful for raytracing
 //
@@ -57,7 +58,7 @@ pub struct Hit {
 impl Hit {
   /// Constructs a new `Hit` at a distance from its ray origin
   pub fn new( distance : f32, normal : Vec3, mat : PointMaterial, is_entering : bool ) -> Hit {
-    Hit { distance, normal, mat, is_entering }
+    Hit { distance, normal: normal.normalize( ), mat, is_entering }
   }
 }
 
@@ -88,6 +89,21 @@ pub trait Bounded : fmt::Debug {
 
 /// A trait for physical objects, with which a ray of light can be intersected
 pub trait Tracable : Bounded {
+  /// Returns true when the shape is in any way emissive
+  fn is_emissive( &self ) -> bool;
+
+  /// Returns the surface area of the shape
+  fn surface_area( &self ) -> f32 {
+    panic!( "Not implemented" );
+  }
+
+  /// Pick a random point *on the sphere around p*, which points toward this
+  /// shape. Secondly, returns the normal. Thirdly, also returns the intensity
+  /// So: (point, normal, intensity)
+  fn pick_random( &self, _rng : &mut Rng ) -> (Vec3, Vec3, Vec3) {
+    panic!( "Not implemented" );
+  }
+
   /// Traces a ray with limited properties evaluated at the hit.
   /// That is, no normal or materials are included. Only its distance from the
   ///   ray origin.

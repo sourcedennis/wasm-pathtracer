@@ -9,6 +9,7 @@ pub use spot::{SpotLight};
 use crate::math::Vec3;
 use crate::graphics::Color3;
 
+/// These are the 0-sized lights. Volumetric lights have an `Emissive` material.
 /// A general light class which encapsulates the other available light sources.
 pub enum Light {
   Directional( DirectionalLight ),

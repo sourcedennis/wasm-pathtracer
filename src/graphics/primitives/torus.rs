@@ -16,16 +16,19 @@ pub struct Torus {
 }
 
 impl Torus {
+  /// Constructs a new flat-lying torus at the given location
   pub fn new( location : Vec3, big_r : f32, small_r : f32, mat : Material ) -> Torus {
     Torus { location, big_r, small_r, mat }
   }
 }
 
 impl Bounded for Torus {
+  /// See `Bounded::location()`
   fn location( &self ) -> Option< Vec3 > {
     Some( self.location )
   }
 
+  /// See `Bounded::aabb()`
   fn aabb( &self ) -> Option< AABB > {
     let r = self.big_r + self.small_r;
 
@@ -49,6 +52,12 @@ impl Bounded for Torus {
 }
 
 impl Tracable for Torus {
+  /// See `Tracable::is_emissive()`
+  fn is_emissive( &self ) -> bool {
+    self.mat.is_emissive( )
+  }
+  
+  /// See `Tracable::trace()`
   fn trace( &self, ray: &Ray ) -> Option< Hit > {
     // The torus formula is defined as (where A=big_r and B=small_r):
     // (x^2 + y^2 + z^2 + A^2 - B^2) = 4A^2 * (x^2 + y^2)
@@ -117,6 +126,7 @@ impl Tracable for Torus {
   }
 }
 
+/// Discards negative (or small) numbers in-place
 fn fix_positive( xs : &mut [ f64 ] ) -> usize {
   let mut num_positive = 0;
   for i in 0..xs.len( ) {
@@ -128,6 +138,7 @@ fn fix_positive( xs : &mut [ f64 ] ) -> usize {
   num_positive
 }
 
+/// Wrapper for the Roots interface. Stores them into the provided array
 fn simplify_roots< F: FloatType >( dst : &mut [F; 4], src : &Roots< F > ) -> usize {
   match src {
     Roots::No( _fs ) => 0,

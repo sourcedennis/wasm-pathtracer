@@ -33,6 +33,26 @@ impl Vec3 {
     self.x * rhs.x + self.y * rhs.y + self.z * rhs.z
   }
 
+  /// Returns some vector that is orthogonal to the current
+  pub fn orthogonal( self ) -> Vec3 {
+    if self.z.abs( ) > 0.1 {
+      let v1 = 1.0;
+      let v2 = 1.0;
+      let v3 = -( self.x * v1 + self.y * v2 ) / self.z;
+      Vec3::unit( v1, v2, v3 )
+    } else if self.x.abs( ) > 0.1 {
+      let v2 = 1.0;
+      let v3 = 1.0;
+      let v1 = -( self.y * v2 + self.z * v3 ) / self.x;
+      Vec3::unit( v1, v2, v3 )
+    } else {
+      let v1 = 1.0;
+      let v3 = 1.0;
+      let v2 = -( self.x * v1 + self.z * v3 ) / self.y;
+      Vec3::unit( v1, v2, v3 )
+    }
+  }
+
   /// Computes the crosss product with the provided Vec3
   pub fn cross( self, t : Vec3 ) -> Vec3 {
     Vec3::new(
@@ -49,6 +69,16 @@ impl Vec3 {
   /// Returns the *square* length
   pub fn len_sq( self ) -> f32 {
     self.dot( self )
+  }
+
+  /// Returns the *square* distance to the other point
+  pub fn dis_sq( self, b : Vec3 ) -> f32 {
+    ( self - b ).len_sq( )
+  }
+
+  /// Returns the distance to the other point
+  pub fn dis( self, b : Vec3 ) -> f32 {
+    ( self - b ).len( )
   }
 
   /// Reflects the vector along the provided normal
@@ -126,6 +156,14 @@ impl ops::Mul< Vec3 > for f32 {
 
   fn mul( self, v: Vec3 ) -> Vec3 {
     Vec3::new( self * v.x, self * v.y, self * v.z )
+  }
+}
+
+impl ops::Mul< Vec3 > for Vec3 {
+  type Output = Vec3;
+
+  fn mul( self, v: Vec3 ) -> Vec3 {
+    Vec3::new( self.x * v.x, self.y * v.y, self.z * v.z )
   }
 }
 

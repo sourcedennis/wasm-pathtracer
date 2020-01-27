@@ -20,11 +20,13 @@ impl Plane {
 }
 
 impl Bounded for Plane {
+  /// See `Plane::location()`
   fn location( &self ) -> Option< Vec3 > {
     // Planes are infinite, and thus have no location
     None
   }
 
+  /// See `Plane::aabb()`
   fn aabb( &self ) -> Option< AABB > {
     // Planes are infinite, and thus have no AABB
     None
@@ -32,8 +34,14 @@ impl Bounded for Plane {
 }
 
 impl Tracable for Plane {
-  // Copied and adjusted from BSc ray-tracer:
-  // https://github.com/dennis-school/raytrace_city/blob/master/Code/shapes/plane.cpp
+  /// See `Tracable::is_emissive()`
+  fn is_emissive( &self ) -> bool {
+    self.mat.is_emissive( )
+  }
+  
+  /// See `Tracable::trace()`
+  /// Copied and adjusted from BSc ray-tracer:
+  /// https://github.com/dennis-school/raytrace_city/blob/master/Code/shapes/plane.cpp
   fn trace( &self, ray: &Ray ) -> Option< Hit > {
     let mut normal = self.normal;
     let n_dot_dir = normal.dot( ray.dir );
@@ -68,6 +76,7 @@ impl Tracable for Plane {
     Some( Hit::new( t, normal, mat, true ) )
   }
   
+  /// See `Tracable::trace_simple()`
   fn trace_simple( &self, ray : &Ray ) -> Option< f32 > {
     let normal = self.normal;
     let n_dot_dir = normal.dot( ray.dir );

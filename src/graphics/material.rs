@@ -1,9 +1,11 @@
 // External imports
 use std::fmt;
+use std::f32::consts::PI;
 // Local imports
 use crate::graphics::Color3;
-use crate::graphics::Texture;
+//use crate::graphics::Texture;
 use crate::math::{ Vec2, Vec3 };
+use crate::rng::Rng;
 
 // Exports:
 // * Material
@@ -12,66 +14,28 @@ use crate::math::{ Vec2, Vec3 };
 /// A description of visual characteristics for a 3d shape
 #[derive(Clone)]
 pub enum Material {
-  // Reflect with `reflection` set to 0.0 is diffuse
-  // `ks` and `n` are parameters of the Phong model for specular reflection
-  Reflect { color : Color3, reflection : f32, ks : f32, n : f32 },
-  // A material with a texture
-  // For now, store the textures within the material. Though, might want to make
-  //   these references in the future, as this duplicates texture data somewhat
-  //   unnecessarily. It does keep the interface/ownership management easier,
-  //   and does not impact runtime performance, though.
-  // `ks` and `n` are parameters of the Phong model for specular reflection
-  ReflectTexture { texture : Texture, reflection : f32, ks : f32, n : f32 },
-  // Note that refracting objects do *not* have a diffuse color,
-  //   as their perceived color is obtained by the semi-transparent
-  //   color of their material.
-  // This absorption is provided to Beer's law, which gives the
-  //   amount of light that is absorped by the material.
-  //   It should be a positive amount, whose values are the
-  //   "inverse" of the object's color. So if a color is blue (0,0,1)
-  //   then it absorbs the color (1,1,0).
-  // `ks` and `n` are parameters of the Phong model for specular reflection
-  Refract { absorption : Vec3, refractive_index : f32, ks : f32, n : f32 }
+  Diffuse { color : Color3 },
+  // A light source. The intensity over its whole surface
+  Emissive { intensity : Vec3 }
 }
 
 impl Material {
   // Constructs a new diffuse material
   pub fn diffuse( color : Color3 ) -> Material {
-    Material::Reflect { color, reflection: 0.0, ks: 0.0, n: 0.0 }
+    //Material::Microfacet { color, alpha: 1.0 }
+    Material::Diffuse { color }
   }
 
-  // Constructs a new diffuse texture material
-  pub fn diffuse_texture( texture : Texture ) -> Material {
-    Material::ReflectTexture { texture, reflection: 0.0, ks: 0.0, n: 0.0 }
+  // Constructs a new emissive material
+  pub fn emissive( intensity : Vec3 ) -> Material {
+    Material::Emissive { intensity }
   }
 
-  // Constructs a new reflective material
-  // Note that when `reflection` is 0, the material is diffuse
-  pub fn reflect( color : Color3, reflection : f32 ) -> Material {
-    Material::Reflect { color, reflection, ks: 0.0, n: 0.0 }
-  }
-
-  // Constructs a new reflective material with a texture
-  // Note that when `reflection` is 0, the material is diffuse
-  pub fn reflect_texture( texture : Texture, reflection : f32 ) -> Material {
-    Material::ReflectTexture { texture, reflection, ks: 0.0, n: 0.0 }
-  }
-
-  /// Constructs a new refractive material
-  /// See also the `Material::Refract` constructor
-  pub fn refract( absorption : Vec3, refractive_index : f32 ) -> Material {
-    Material::Refract { absorption, refractive_index, ks: 0.0, n: 0.0 }
-  }
-
-  /// Returns a new material with the Phong specular components set
-  pub fn set_specular( self, new_ks : f32, new_n : f32 ) -> Material {
+  /// Returns true if the material is emissive
+  pub fn is_emissive( &self ) -> bool {
     match self {
-      Material::Reflect { color, reflection, .. } =>
-        Material::Reflect { color, reflection, ks: new_ks, n: new_n },
-      Material::ReflectTexture { texture, reflection, .. } =>
-        Material::ReflectTexture { texture, reflection, ks: new_ks, n: new_n },
-      Material::Refract { absorption, refractive_index, .. } =>
-        Material::Refract { absorption, refractive_index, ks: new_ks, n: new_n }
+      Material::Emissive { .. } => true,
+      _ => false
     }
   }
 
@@ -79,28 +43,19 @@ impl Material {
   /// If a material cannot be generally evaluated (as they vary per
   ///   surface-point) it returns `None`.
   pub fn evaluate_simple( &self ) -> Option< PointMaterial > {
-    match self {
-      Material::Reflect { .. }  =>
-        Some( self.evaluate_at( &Vec2::ZERO ) ),
-      Material::ReflectTexture { .. }  =>
-        None,
-      Material::Refract { .. } =>
-        Some( self.evaluate_at( &Vec2::ZERO ) )
-    }
+    Some( self.evaluate_at( &Vec2::ZERO ) )
   }
 
   /// The way `Material`s are defined, they can be evaluated at a specific
   ///   point on their 2d-space (which supposedly corresponds to a 3d surface
   ///   point). The produces a `PointMaterial`.
   /// `v` should be within the range (0,1)x(0,1)
-  pub fn evaluate_at( &self, v : &Vec2 ) -> PointMaterial {
+  pub fn evaluate_at( &self, _v : &Vec2 ) -> PointMaterial {
     match self {
-      Material::Reflect { color, reflection, ks, n } =>
-        PointMaterial::reflect( *color, *reflection, *ks, *n ),
-      Material::ReflectTexture { texture, reflection, ks, n } =>
-        PointMaterial::reflect( texture.at( *v ), *reflection, *ks, *n ),
-      Material::Refract { absorption, refractive_index, ks, n } =>
-        PointMaterial::refract( *absorption, *refractive_index, *ks, *n )
+      Material::Diffuse { color } =>
+        PointMaterial::diffuse( *color ),
+      Material::Emissive { intensity } =>
+        PointMaterial::emissive( *intensity )
     }
   }
 }
@@ -113,21 +68,71 @@ impl Material {
 ///   *one specific point* on the surface
 #[derive(Clone,Copy)]
 pub enum PointMaterial {
-  /// See `Material::Reflect`
-  Reflect { color : Color3, reflection : f32, ks : f32, n : f32 },
+  /// See `Material::Diffuse`
+  Diffuse { color : Color3 },
   /// See `Material::Refract`
-  Refract { absorption : Vec3, refractive_index : f32, ks : f32, n : f32 }
+  Emissive { intensity : Vec3 }
 }
 
 impl PointMaterial {
-  /// See `Material::reflect`
-  pub fn reflect( color : Color3, reflection : f32, ks : f32, n : f32 ) -> PointMaterial {
-    PointMaterial::Reflect { color, reflection, ks, n }
+  /// See `Material::diffuse`
+  pub fn diffuse( color : Color3 ) -> PointMaterial {
+    PointMaterial::Diffuse { color }
   }
 
   /// See `Material::refract`
-  pub fn refract( absorption : Vec3, refractive_index : f32, ks : f32, n : f32 ) -> PointMaterial {
-    PointMaterial::Refract { absorption, refractive_index, ks, n }
+  pub fn emissive( intensity : Vec3 ) -> PointMaterial {
+    PointMaterial::Emissive { intensity }
+  }
+
+  pub fn is_diffuse( &self ) -> bool {
+    match self {
+      PointMaterial::Diffuse { .. } => true,
+      _ => false
+    }
+  }
+
+  /// Returns a random outgoing direction `wi`, together with the probability
+  /// of obtaining that direction
+  pub fn sample_hemisphere( &self, rng : &mut Rng, _wo : &Vec3, normal : &Vec3 ) -> (Vec3, f32) {
+    match self {
+      PointMaterial::Diffuse { .. } => {
+        // Diffuse
+        let r1 = rng.next( );
+        let r2 = rng.next( );
+    
+        let x = ( 2.0 * PI * r1 ).cos( ) * ( 1.0 - r2 ).sqrt( );
+        let y = r2.sqrt( );
+        let z = ( 2.0 * PI * r1 ).sin( ) * ( 1.0 - r2 ).sqrt( );
+        
+        // The normal points along the y axis (in point space). Find some tangents
+        let x_normal = normal.orthogonal( );
+        let z_normal = normal.cross( x_normal );
+
+        let wi = ( x * x_normal + y * (*normal) + z * z_normal ).normalize( );
+    
+        ( wi, wi.dot( *normal ) / PI )
+      },
+      PointMaterial::Emissive { .. } => panic!( "Light source" )
+    }
+  }
+
+  pub fn brdf( &self, _normal : &Vec3, _wo : &Vec3, _wi : &Vec3 ) -> Color3 {
+    match self {
+      PointMaterial::Diffuse { color } =>
+        (*color) / PI,
+      PointMaterial::Emissive { .. } => panic!( "Light source" )
+    }
+  }
+
+  /// A physically *inaccurate* color, can be used for testing non-lit scenes
+  pub fn test_color( &self ) -> Color3 {
+    match self {
+      PointMaterial::Diffuse { color } =>
+        *color,
+      PointMaterial::Emissive { intensity } =>
+        Color3::from_vec3( intensity.normalize( ) )
+    }
   }
 }
 
@@ -137,38 +142,11 @@ impl PointMaterial {
 impl fmt::Debug for Material {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
-      Material::Reflect { color, reflection, ks, n } => {
-        if *reflection == 0.0 {
-          if *ks == 0.0 && *n == 0.0 {
-            write!( f, "Material::Reflect {{ color: {:?} }}", color )
-          } else {
-            write!( f, "Material::Reflect {{ color: {:?}, ks: {}, n: {} }}", color, ks, n )
-          }
-        } else if *ks == 0.0 && *n == 0.0 {
-          write!( f, "Material::Reflect {{ color: {:?}, reflection: {} }}", color, reflection )
-        } else {
-          write!( f, "Material::Reflect {{ color: {:?}, reflection: {}, ks: {}, n: {} }}", color, reflection, ks, n )
-        }
+      Material::Diffuse { color } => {
+        write!( f, "Material::Diffuse {{ color: {:?} }}", color )
       },
-      Material::ReflectTexture { texture, reflection, ks, n } => {
-        if *reflection == 0.0 {
-          if *ks == 0.0 && *n == 0.0 {
-            write!( f, "Material::ReflectTexture {{ texture: {:?} }}", texture )
-          } else {
-            write!( f, "Material::ReflectTexture {{ texture: {:?}, ks: {}, n: {} }}", texture, ks, n )
-          }
-        } else if *ks == 0.0 && *n == 0.0 {
-          write!( f, "Material::ReflectTexture {{ texture: {:?}, reflection: {} }}", texture, reflection )
-        } else {
-          write!( f, "Material::ReflectTexture {{ texture: {:?}, reflection: {}, ks: {}, n: {} }}", texture, reflection, ks, n )
-        }
-      },
-      Material::Refract { absorption, refractive_index, ks, n } => {
-        if *ks == 0.0 && *n == 0.0 {
-          write!( f, "Material::Refract {{ absorption: {:?}, refractive_index: {} }}", absorption, refractive_index )
-        } else {
-          write!( f, "Material::Refract {{ absorption: {:?}, refractive_index: {}, ks: {}, n: {} }}", absorption, refractive_index, ks, n )
-        }
+      Material::Emissive { intensity } => {
+        write!( f, "Material::Emissive {{ intensity: {:?} }}", intensity )
       }
     }
   }

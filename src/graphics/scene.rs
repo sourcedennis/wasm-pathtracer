@@ -1,5 +1,5 @@
 // External imports
-use std::f32::INFINITY;
+use std::f32::{INFINITY};
 use std::rc::Rc;
 // Local imports
 use crate::graphics::{Color3, AABB};
@@ -8,6 +8,8 @@ use crate::graphics::lights::Light;
 use crate::math::{Vec3, EPSILON};
 use crate::graphics::{BVHNode, BVHNode4};
 
+// A scene description for a path tracer
+
 /// The possible BVH representations
 enum BVHEnum {
   BVH2( usize, Vec< BVHNode > ),
@@ -15,36 +17,55 @@ enum BVHEnum {
   BVHNone
 }
 
-// A Scene consists of shapes and lights
-// The camera is *not* part of the scene
-//
-// (For specific scenes, look at the `/scenes.rs` file)
+pub enum LightEnum {
+  /// Point light
+  Point( Light ),
+  /// Area light. Index in the `shapes` array (of `Scene`)
+  Area( usize ) 
+}
+
+/// A Scene consists of shapes and lights
+/// The camera is *not* part of the scene
+///
+/// (For specific scenes, look at the `/scenes.rs` file)
 pub struct Scene {
   pub background : Color3,
-  pub lights     : Vec< Light >,
+  pub lights     : Vec< LightEnum >,
   pub shapes     : Vec< Rc< dyn Tracable > >,
       bvh        : BVHEnum
 }
 
-// A "hit" for a light source
-// If such a hit exists, there is a non-occluded ray from a surface point to
-//   the light source. (This is used for casting shadow rays)
-pub struct LightHit {
-  // The vector *to* the light source
-  pub dir         : Vec3,
-  // The color of the distance-attenuated light source
-  pub color       : Vec3,
-  // Some(..) if attenuation still needs to be applied, with squared distance
-  pub distance_sq : Option< f32 >
-}
+type ShapeId = usize;
 
 impl Scene {
   /// Constructs a new scene with the specified lights and shapes
+  #[allow(unused)]
   pub fn new( background : Color3
             , lights     : Vec< Light >
-            , shapes : Vec< Rc< dyn Tracable > >
+            , shapes     : Vec< Rc< dyn Tracable > >
             ) -> Scene {
-    Scene { background, lights, bvh: BVHEnum::BVHNone, shapes }
+    let mut num_area_lights = 0;
+
+    for s in &shapes {
+      num_area_lights += if s.is_emissive( ) { 1 } else { 0 }
+    }
+
+    let mut light_enums = Vec::with_capacity( lights.len( ) + num_area_lights );
+
+    for l in lights {
+      light_enums.push( LightEnum::Point( l ) );
+    }
+
+    let mut scene = Scene { background, lights: vec![], bvh: BVHEnum::BVHNone, shapes };
+    scene.rebuild_bvh( 16, false );
+
+    for i in 0..scene.shapes.len( ) {
+      if scene.shapes[ i ].is_emissive( ) {
+        light_enums.push( LightEnum::Area( i ) );
+      }
+    }
+
+    Scene { background, lights: light_enums, bvh: scene.bvh, shapes: scene.shapes }
   }
 
   /// Rebuilds the BVH, and returns the number of nodes
@@ -61,6 +82,7 @@ impl Scene {
       num_nodes = BVHNode4::node_count( &bvh4 );
       
       if !BVHNode4::verify( &self.shapes, num_inf, &bvh4) {
+        // This should not happen, but panicing here is better than later
         panic!( "WHAT" );
       }
       
@@ -78,69 +100,44 @@ impl Scene {
     self.bvh = BVHEnum::BVHNone;
   }
 
-  /// Casts a shadow ray from the `hit_loc` to the referenced light.
-  /// When the light is non-occluded, it returns a LightHit.
-  /// The first element in the tuple is the number of performed BVH node
-  ///   traversals.
-  pub fn shadow_ray( &self, hit_loc : &Vec3, light_id : usize ) -> (usize, Option< LightHit >) {
-    match &self.lights[ light_id ] {
-      Light::Point( ref l ) => {
-        let mut to_light : Vec3 = l.location - *hit_loc;
-        let distance_sq = to_light.len_sq( );
-        to_light = to_light / distance_sq.sqrt( );
+  /// Is the ray from point `p` to `point_on_shape` occluded by anything (other than `shape` itself)?
+  pub fn shadow_ray( &self, p : &Vec3, point_on_shape : &Vec3, shape : Option< ShapeId > ) -> (usize, bool) {
+    let mut dir = *point_on_shape - *p;
+    let dir_len = dir.len( );
+    dir         = dir / dir_len;
+    let ray     = Ray::new( *p + dir * EPSILON, dir );
 
-        let shadow_ray = Ray::new( *hit_loc + EPSILON * to_light, to_light );
-        let (d,res) = self.trace_simple( &shadow_ray );
-        if !is_hit_within_sq( res, distance_sq ) {
-          (d, Some( LightHit { dir: to_light, color: l.color, distance_sq: Some( distance_sq ) } ) )
-        } else {
-          (d, None)
-        }
-      },
-      Light::Directional( ref l ) => {
-        let to_light   = -l.direction;
-        let shadow_ray = Ray::new( *hit_loc + EPSILON * to_light, to_light );
-        let (d, res) = self.trace_simple( &shadow_ray );
-        if let Some( _h ) = res {
-          // A shadow occludes the lightsource
-          (d, None)
-        } else {
-          // Note that no attenuation applies here, as the lightsource is at an
-          // infinite distance anyway
-          (d, Some( LightHit { dir: to_light, color: l.color.to_vec3( ), distance_sq: None } ))
-        }
-      },
-      Light::Spot( ref l ) => {
-        let mut to_light : Vec3 = l.location - *hit_loc;
-        let distance_sq = to_light.len_sq( );
-        to_light = to_light / distance_sq.sqrt( );
-        let from_light : Vec3 = -to_light;
+    let (num_bvh_hits, res) = self.trace_g( &ray );
 
-        let angle_diff = from_light.dot( l.direction ).acos( );
-
-        if angle_diff < l.angle {
-          let shadow_ray = Ray::new( *hit_loc + EPSILON * to_light, to_light );
-          let (d, res) = self.trace_simple( &shadow_ray );
-          if !is_hit_within_sq( res, distance_sq ) {
-            ( d, Some( LightHit { dir: to_light, color: l.color, distance_sq: Some( distance_sq ) } ) )
+    if let Some( ( dis, shape_id ) ) = res {
+      if dis < dir_len {
+        if let Some( light_shape_id ) = shape {
+          if shape_id == light_shape_id {
+            // It's only "occluded" by the shape to which the shadow ray was cast
+            ( num_bvh_hits, false )
           } else {
-            // It's occluded
-            ( d, None )
+            // It is occluded by some other shape
+            ( num_bvh_hits, true )
           }
         } else {
-          // Outside the spot area
-          ( 0, None )
+          // It is occluded by some other shape
+          ( num_bvh_hits, true )
         }
+      } else {
+        // The hit is beyond `point_on_shape`
+        ( num_bvh_hits, false )
       }
+    } else {
+      ( num_bvh_hits, false ) // Not occluded
     }
   }
 
-  /// Traces a ray into the scene and returns the first element hit
+  /// Traces a  ray into the scene and returns the first element hit
   /// The first tuple-element is the number of BVH node traversals
   pub fn trace( &self, ray : &Ray ) -> (usize, Option< Hit >) {
     let (d, t) = self.trace_g( ray );
-    if let Some( (_, s) ) = t {
-      (d, s.trace( ray ))
+    if let Some( (_, shape_id) ) = t {
+      (d, self.shapes[ shape_id ].trace( ray ))
     } else {
       (d, None)
     }
@@ -162,7 +159,7 @@ impl Scene {
 
   /// General trace function. It returns the distance and reference to the first object hit.
   /// The first tuple-element is the number of BVH node traversals
-  fn trace_g< 'a >( &'a self, ray : &Ray ) -> (usize, Option< (f32, &'a Rc< dyn Tracable >) >) {
+  fn trace_g< 'a >( &'a self, ray : &Ray ) -> (usize, Option< (f32, ShapeId) >) {
     match &self.bvh {
       BVHEnum::BVH2( numinf, bvh ) => {
         if let Some( h1 ) = trace_shapes( ray, &self.shapes[..*numinf] ) {
@@ -197,7 +194,7 @@ fn traverse_bvh_guarded< 'a >(
     , bvh     : &[BVHNode]
     , shapes  : &'a [Rc< dyn Tracable >]
     , node_i  : usize
-    , max_dis : f32 ) -> (usize, Option< (f32, &'a Rc< dyn Tracable >) >) {
+    , max_dis : f32 ) -> (usize, Option< (f32, ShapeId) >) {
 
   let node   = &bvh[ node_i ];
   let bounds = &node.bounds;
@@ -224,7 +221,7 @@ fn traverse_bvh< 'a >(
     , bvh     : &[BVHNode]
     , shapes  : &'a [Rc< dyn Tracable >]
     , node_i  : usize
-    , max_dis : f32 ) -> (usize, Option< (f32, &'a Rc< dyn Tracable >) >) {
+    , max_dis : f32 ) -> (usize, Option< (f32, ShapeId) >) {
 
   let node = &bvh[ node_i ];
 
@@ -234,7 +231,11 @@ fn traverse_bvh< 'a >(
     let offset = node.left_first as usize;
     let size = node.count as usize;
 
-    (1, trace_shapes_md( ray, &shapes[(num_inf+offset)..(num_inf+offset+size)], max_dis ))
+    if let Some( ( dis, res ) ) = trace_shapes_md( ray, &shapes[(num_inf+offset)..(num_inf+offset+size)], max_dis ) {
+      (1, Some((dis, num_inf+offset+res)))
+    } else {
+      ( 1, None )
+    }
   } else { // node
     let left_index = node.left_first as usize;
 
@@ -294,7 +295,7 @@ fn traverse_bvh4< 'a >(
     , bvh         : &[BVHNode4]
     , shapes      : &'a [Rc< dyn Tracable >]
     , node_i      : i32
-    , mut max_dis : f32 ) -> (usize, Option< (f32, &'a Rc< dyn Tracable >) >) {
+    , mut max_dis : f32 ) -> (usize, Option< (f32, ShapeId) >) {
   
 
   if node_i < 0 { // leaf
@@ -302,7 +303,11 @@ fn traverse_bvh4< 'a >(
     let num_shapes = ( ( ni >> 27 ) & 0x3 ) as usize;
     let shape_index = ( ni & 0x7FFFFFF ) as usize;
 
-    (1, trace_shapes_md( ray, &shapes[(num_inf+shape_index)..(num_inf+shape_index+num_shapes)], max_dis ))
+    if let Some( ( dis, res ) ) = trace_shapes_md( ray, &shapes[(num_inf+shape_index)..(num_inf+shape_index+num_shapes)], max_dis ) {
+      (1, Some((dis, num_inf+shape_index+res)))
+    } else {
+      ( 1, None )
+    }
   } else { // node
     let node = &bvh[ node_i as usize ];
     let num_children  = node.num_children as usize;
@@ -398,9 +403,9 @@ fn aabb_distance( ray : &Ray, aabb : &AABB, max_dis : f32 ) -> Option< f32 > {
 }
 
 /// Returns the element with the lowest distance
-fn closest< 'a >( a: Option< (f32, &'a Rc< dyn Tracable >) >
-                , b: Option< (f32, &'a Rc< dyn Tracable >) >
-                ) -> Option< (f32, &'a Rc< dyn Tracable >) > {
+fn closest< 'a, T >( a: Option< (f32, T) >
+                   , b: Option< (f32, T) >
+                   ) -> Option< (f32, T) > {
   if let Some( (av,_) ) = a {
     if let Some( (bv,_) ) = b {
       if av < bv {
@@ -420,17 +425,18 @@ fn closest< 'a >( a: Option< (f32, &'a Rc< dyn Tracable >) >
 ///   whose distance is closest (but not negative).
 fn trace_shapes< 'a >( ray     : &Ray
                      , shapes  : &'a [Rc< dyn Tracable >]
-                     ) -> Option< (f32, &'a Rc< dyn Tracable >) > {
+                     ) -> Option< (f32, ShapeId) > {
   let mut best_hit = None;
 
-  for s in shapes {
+  for i in 0..shapes.len( ) {
+    let s = &shapes[ i ];
     if let Some( new_dis ) = s.trace_simple( ray ) {
       if let Some( ( bhd, _ ) ) = best_hit {
         if 0.0_f32 < new_dis && new_dis < bhd {
-          best_hit = Some( ( new_dis, s ) );
+          best_hit = Some( ( new_dis, i ) );
         }
       } else {
-        best_hit = Some( ( new_dis, s ) );
+        best_hit = Some( ( new_dis, i ) );
       }
     }
   }
@@ -444,18 +450,19 @@ fn trace_shapes< 'a >( ray     : &Ray
 fn trace_shapes_md < 'a >( ray     : &Ray
                          , shapes  : &'a [Rc< dyn Tracable >]
                          , max_dis : f32
-                         ) -> Option< (f32, &'a Rc< dyn Tracable >) > {
+                         ) -> Option< (f32, ShapeId) > {
   let mut best_hit = None;
 
-  for s in shapes {
+  for i in 0..shapes.len( ) {
+    let s = &shapes[ i ];
     if let Some( new_dis ) = s.trace_simple( ray ) {
       if new_dis <= max_dis {
         if let Some( ( bhd, _ ) ) = best_hit {
           if 0.0_f32 < new_dis && new_dis < bhd {
-            best_hit = Some( ( new_dis, s ) );
+            best_hit = Some( ( new_dis, i ) );
           }
         } else {
-          best_hit = Some( ( new_dis, s ) );
+          best_hit = Some( ( new_dis, i ) );
         }
       }
     }

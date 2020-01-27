@@ -1,40 +1,15 @@
-use crate::data::cap_stack::Stack;
-use crate::graphics::{Color3, PointMaterial, Scene};
-use crate::graphics::ray::{Ray};
-use crate::math::Vec3;
-use crate::math;
+// Stdlib imports
 use std::f32::INFINITY;
-
-/// Individual instances of Material constructors
-/// Such that work can be split up
-#[derive(Copy, Clone)]
-pub struct MatReflect {
-  pub color     : Color3,
-  pub reflection : f32
-}
-
-impl MatReflect {
-  pub fn new( color : Color3, reflection : f32 ) -> MatReflect {
-    MatReflect { color, reflection }
-  }
-}
-
-/// Another extracted Material constructor
-#[derive(Copy, Clone)]
-pub struct MatRefract {
-  pub absorption       : Vec3,
-  pub refractive_index : f32
-}
-
-impl MatRefract {
-  // The "material" of air (real refractive index might be slightly greater)
-  // Note that when `absorption` = (0,0,0); then the multipliers are: e^0.0 = 1.0
-  pub const AIR: MatRefract = MatRefract { absorption: Vec3::ZERO, refractive_index: 1.0 };
-
-  pub fn new( absorption : Vec3, refractive_index : f32 ) -> MatRefract {
-    MatRefract { absorption, refractive_index }
-  }
-}
+use std::rc::Rc;
+use std::cell::RefCell;
+// Local imports
+use crate::graphics::{PointMaterial, Scene, LightEnum};
+use crate::graphics::ray::{Ray};
+use crate::math::{EPSILON, Vec3};
+use crate::render_target::RenderTarget;
+use crate::data::PhotonTree;
+use crate::graphics::{SamplingStrategy};
+use crate::rng::Rng;
 
 /// The scene camera.
 /// It first rotates around the x-axis, then around the y-axis, then it translates
@@ -50,216 +25,300 @@ impl Camera {
   }
 }
 
-/// Traces an original ray, and produces a gray-scale value for that ray
-/// White values are close, black are far away
-pub fn trace_original_depth( scene : &Scene, ray : &Ray ) -> (usize,f32) {
-  let (d, res) = scene.trace_simple( ray );
-  if let Some( v ) = res {
-    (d, v)
-  } else {
-    (d, INFINITY)
-  }
+#[derive(PartialEq)]
+pub enum RenderType {
+  NoNEE,
+  NormalNEE,
+  PNEE
 }
 
-pub fn trace_original_bvh( scene : &Scene, ray : &Ray ) -> usize {
-  let (d, _) = scene.trace( ray );
-  d
+pub struct RenderInstance {
+  option       : RenderType,
+  camera       : Rc< RefCell< Camera > >,
+  scene        : Rc< Scene >,
+  rng          : Rc< RefCell< Rng > >,
+  num_bvh_hits : usize,
+  target       : Rc< RefCell< RenderTarget > >,
+
+  sampling_strategy : Box< dyn SamplingStrategy >,
+
+  // If true, renders the selected photons in "debug-mode"
+  // Which means at each sample, it renders the verbatim color of the selected
+  // light source.
+  is_debug_photons  : bool,
+
+  photons     : PhotonTree,
+  num_photons : usize
 }
 
-/// Traces an original ray, and produces a color for that ray
-pub fn trace_original_color( scene : &Scene, ray : &Ray, max_rays : u32, refr_stack : &mut Stack< MatRefract > ) -> (usize,Color3) {
-  let (d, _, c) = trace_color( scene, ray, max_rays, refr_stack );
-  (d, c)
-}
+type ShapeId = usize;
 
-/// Traces a ray into the scene, and returns both its distance and color to the
-/// first hit. If no hit found it returns a distance of 0 and the color black.
-/// This should be of no effect anyway.
-fn trace_color( scene : &Scene, ray : &Ray, max_rays : u32, refr_stack : &mut Stack< MatRefract > ) -> (usize, f32, Color3) {
-  if let (u0, Some( h )) = scene.trace( ray ) {
-    let hit_loc = ray.at( h.distance );
-    let mut u_sum = u0;
-
-    let color =
-      match h.mat {
-        PointMaterial::Reflect { color, reflection, ks, n } => {
-          let (u1,light_color) = lights_color( scene, &hit_loc, &h.normal );
-          let (u2,res) = specular_lights_color( scene, &hit_loc, &ray.dir, &h.normal, ks, n );
-          let specular_light_color = Color3::from_vec3( res );
-          u_sum += u1 + u2;
-
-          if max_rays > 0 && reflection > 0.0 {
-            let refl_dir             = (-ray.dir).reflect( h.normal );
-            let refl_ray             = Ray::new( hit_loc + math::EPSILON * refl_dir, refl_dir );
-            let (u, _, refl_diffuse) = trace_color( scene, &refl_ray, max_rays - 1, refr_stack );
-            let diffuse_color        = reflection * refl_diffuse + ( 1.0 - reflection ) * color;
-            u_sum += u;
-            (light_color * diffuse_color + specular_light_color)
-          } else { // If it's at the cap, just apply direct illumination
-            (light_color * color + specular_light_color)
-          }
-        },
-
-        PointMaterial::Refract { absorption, refractive_index, ks, n } => {
-          let (u,res) = specular_lights_color( scene, &hit_loc, &ray.dir, &h.normal, ks, n );
-          let specular_light_color = Color3::from_vec3( res );
-          u_sum += u;
-
-          let (obj_refractive_index, outside_refr_index, is_popped) =
-            if h.is_entering {
-              let outside_mat = refr_stack.top( ).unwrap( );
-              ( refractive_index, outside_mat.refractive_index, false )
-            } else {
-              let ip = !refr_stack.pop_until1( ).is_none( ); // This is the object's material
-              let outside_mat = refr_stack.top( ).unwrap( );
-              ( outside_mat.refractive_index, refractive_index, ip )
-            };
-
-          let (kr, refr_color) =
-            if max_rays > 0 {
-              if let Some( ( kr, refr_dir ) ) = refract_fresnel( ray.dir, h.normal, outside_refr_index, obj_refractive_index ) {
-                // No total internal reflection (refract(..) returns None if that were so). So kr < 1.0
-                // Cast refraction ray
-                let refr_ray = Ray::new( hit_loc + refr_dir * math::EPSILON, refr_dir );
-
-                // Beer's law
-                // With some additional stuff. Consider the following situation
-                // --->| A   |B|   A   |C|    A |--->
-                // Here the object A contains two objects B and C
-                // but how does the central part of A absorb stuff? It is unknown from leaving B or entering C.
-                // Thus keep a stack for these weird cases
-                // Note, however, if the original ray starts inside a mesh, stuff goes wrong (so don't do this =D )
-                if h.is_entering {
-                  // This object is the contained object's outside
-                  refr_stack.push( MatRefract::new( absorption, obj_refractive_index ) );
-                  let (u,d,c) = trace_color( scene, &refr_ray, max_rays - 1, refr_stack );
-                  u_sum += u;
-                  refr_stack.pop_until1( );
-                  ( kr, c * ( -absorption * d ).exp( ) )
-                } else { // leaving the object
-                  // Note that in this case the material was popped before, and is pushed after
-                  // Which is done externally
-                  let (u,d,c) = trace_color( scene, &refr_ray, max_rays - 1, refr_stack );
-                  u_sum += u;
-
-                  let a = refr_stack.top( ).unwrap( ).absorption;
-                  ( kr, c * ( -a * d ).exp( ) )
-                }
-              } else { // Total internal reflection
-                ( 1.0, Color3::BLACK )
-              }
-            } else {
-              // This means very little, but happens when the rays don't want to
-              // go any further. Instead of black, choose a sensible color
-              let habs = absorption.x.max( absorption.y ).max( absorption.z );
-              ( 1.0, Color3::new( 1.0 - absorption.x / habs, 1.0 - absorption.y / habs, 1.0 - absorption.z / habs ) )
-            };
-
-          if is_popped {
-            // This was popped before, so put it back. We're inside the object again
-            refr_stack.push( MatRefract::new( absorption, refractive_index ) );
-          }
-
-          let refl_color =
-            if max_rays > 0 && kr > 0.0 {
-              let refl_dir = (-ray.dir).reflect( h.normal );
-              let refl_ray = Ray::new( hit_loc + refl_dir * math::EPSILON, refl_dir );
-              let (u, _, c) = trace_color( scene, &refl_ray, max_rays - 1, refr_stack );
-              u_sum += u;
-              c
-            } else {
-              // This means very little, but happens when the rays don't want to
-              // go any further. Instead of black, choose a sensible color
-              let habs = absorption.x.max( absorption.y ).max( absorption.z );
-              let c = Color3::new( 1.0 - absorption.x / habs, 1.0 - absorption.y / habs, 1.0 - absorption.z / habs );
-              c
-            };
-
-          (refl_color * kr + specular_light_color + refr_color * ( 1.0 - kr ))
-        }
+impl RenderInstance {
+  pub fn new( scene             : Rc< Scene >
+            , camera            : Rc< RefCell< Camera > >
+            , rng               : Rc< RefCell< Rng > >
+            , sampling_strategy : Box< dyn SamplingStrategy >
+            , is_debug_photons  : bool
+            , target            : Rc< RefCell< RenderTarget > >
+            , option            : RenderType
+            ) -> RenderInstance {
+    let num_lights = scene.lights.len( );
+    let mut ins = RenderInstance {
+        option, camera, scene, rng, num_bvh_hits: 0, target
+      , sampling_strategy
+      , is_debug_photons
+      , photons:            PhotonTree::new( num_lights )
+      , num_photons:        0
       };
-
-    ( u_sum, h.distance, color )
-  } else {
-    ( 0, 0.0, scene.background )
+    ins.reset( );
+    ins
   }
-}
 
-/// The sum of the contribution of all lights in the scene toward the `hit_loc`
-/// This takes into account:
-/// * Occlusion (shadow-rays; occluded sources do not contribute)
-/// * Distance
-/// * Angle of hit
-fn lights_color( scene : &Scene, hit_loc : &Vec3, hit_normal : &Vec3 ) -> (usize, Vec3) {
-  let mut light_color = Vec3::ZERO;
-  let mut u_sum = 0;
-  for l_id in 0..scene.lights.len( ) {
-    let (u, res) = scene.shadow_ray( &hit_loc, l_id );
-    if let Some( light_hit ) = res {
-      let attenuation =
-        if let Some( dis_sq ) = light_hit.distance_sq {
-          1.0 / dis_sq
-        } else {
-          1.0
+  pub fn resize( &mut self, x : usize, y : usize, width : usize, height : usize ) {
+    self.sampling_strategy.resize( x, y, width, height );
+    self.reset( );
+  }
+
+  /// Resets the rendering for the current scene. Does *not* throw away scene
+  /// preprocessing data. This only happens after `update_scene()`
+  pub fn reset( &mut self ) {
+    // Note: The `target` is reset externally
+    self.num_bvh_hits = 0;
+    self.sampling_strategy.reset( );
+  }
+
+  pub fn update_scene( &mut self, scene : Rc< Scene > ) {
+    self.num_photons = 0;
+    self.photons     = PhotonTree::new( scene.lights.len( ) );
+    self.scene       = scene;
+    self.reset( );
+  }
+
+  pub fn compute( &mut self, num_ticks : usize ) {
+    let total_photons_needed = 300000;
+
+    if self.option == RenderType::PNEE && self.num_photons < total_photons_needed {
+      let num_to_compute = ( total_photons_needed - self.num_photons ).min( num_ticks * 32 );
+      // Note that calling this may not actually hit `num_to_compute` photons
+      // it only shoots them, but they're only counted when hit
+      self.preprocess_photons( num_to_compute );
+
+      let mut ticks_left = num_ticks - num_to_compute / 32;
+      while ticks_left > 0 && self.num_photons < total_photons_needed {
+        let num_to_compute = ( total_photons_needed - self.num_photons ).min( ticks_left * 32 );
+        self.preprocess_photons( num_to_compute );
+        ticks_left -= num_to_compute / 32;
+      }
+
+      self.compute_rays( ticks_left );
+    } else {
+      self.compute_rays( num_ticks );
+    }
+  }
+
+  fn preprocess_photons( &mut self, num_ticks : usize ) {
+    let mut rng = self.rng.borrow_mut( );
+    let scene   = &self.scene;
+
+    //if let Some( b ) = self.scene.scene_bounds( ) {
+      for _i in 0..num_ticks {
+        let light_id = rng.next_in_range( 0, scene.lights.len( ) );
+        match &scene.lights[ light_id ] {
+          LightEnum::Point( _ ) => panic!( "Pointlight unsupported" ),
+          LightEnum::Area( shape_id ) => {
+            let light_shape = &scene.shapes[ *shape_id ];
+            let (point_on_light, ln, intensity) = light_shape.pick_random( &mut rng );
+            let light_normal = rng.next_hemisphere( &ln );
+            let ray = Ray::new( point_on_light + light_normal * EPSILON, light_normal );
+            let (num_bvh_hits, m_hit) = scene.trace( &ray );
+            self.num_bvh_hits += num_bvh_hits;
+  
+            if let Some( hit ) = m_hit {
+              let photon_hitpoint = ray.at( hit.distance ) + hit.normal * EPSILON;
+              if hit.mat.is_diffuse( ) {
+                self.photons.insert( light_id, photon_hitpoint, ln.dot( light_normal ) * intensity.x.max( intensity.y ).max( intensity.z ) );
+                self.num_photons += 1;
+              }
+            }
+          }
+        }
+      }
+    //}
+  }
+
+  fn compute_rays( &mut self, num_ticks : usize ) {
+    let origin;
+    let w_inv;
+    let h_inv;
+    let ar;
+
+    {
+      let camera = self.camera.borrow( );
+      let target = self.target.borrow( );
+
+      origin = camera.location;
+      let fw     = target.viewport_width as f32;
+      let fh     = target.viewport_height as f32;
+
+      w_inv = 1.0 / fw as f32;
+      h_inv = 1.0 / fh as f32;
+      ar    = fw / fh;
+    }
+    
+    for _i in 0..num_ticks {
+      let (x,y) = self.sampling_strategy.next( );
+
+      let (fx, fy) =
+        {
+          let mut rng = self.rng.borrow_mut( );
+          let fx = ( ( x as f32 + rng.next( ) ) * w_inv - 0.5_f32 ) * ar;
+          let fy = 0.5_f32 - ( y as f32 + rng.next( ) ) * h_inv;
+          (fx, fy)
         };
-      light_color += light_hit.color * attenuation * 0.0_f32.max( hit_normal.dot( light_hit.dir ) );
+  
+      let pixel = Vec3::new( fx, fy, 0.8 );
+      let dir   = 
+        {
+          let camera = self.camera.borrow( );
+          pixel.normalize( ).rot_x( camera.rot_x ).rot_y( camera.rot_y )
+        };
+      
+      let ray = Ray::new( origin, dir );
+
+      // Note that `mat_stack` already contains the "material" for air (so now it's a stack of air)
+      let res = self.trace_original_color( &ray );
+
+      let mut target = self.target.borrow_mut( );
+      target.write( x, y, res );
     }
-    u_sum += u;
-  }
-  (u_sum, light_color)
-}
-
-/// Computes the specular highlight from the Phong illumination model
-/// The "reflects" the light-source onto the object
-fn specular_lights_color( scene : &Scene, hit_loc : &Vec3, i : &Vec3, normal : &Vec3, ks : f32, n : f32 ) -> (usize, Vec3) {
-  if ks == 0.0 {
-    return (0, Vec3::ZERO);
   }
 
-  let mut specular_color = Vec3::ZERO;
-  let mut u_sum = 0;
-  for l_id in 0..scene.lights.len( ) {
-    let (u, res) = scene.shadow_ray( &hit_loc, l_id );
-    if let Some( light_hit ) = res {
-      // The reflection of the vector to the lightsource
-      let refl_l = light_hit.dir.reflect( *normal );
-      specular_color += light_hit.color * ks * 0.0_f32.max( refl_l.dot( -*i ) ).powf( n );
+  /// Traces an original ray, and produces a gray-scale value for that ray
+  /// White values are close, black are far away
+  pub fn trace_original_depth( &mut self, ray : &Ray ) -> f32 {
+    let (d, res) = self.scene.trace_simple( ray );
+    self.num_bvh_hits += d;
+    if let Some( v ) = res {
+      v
+    } else {
+      INFINITY
     }
-    u_sum += u;
   }
-  (u_sum, specular_color)
-}
 
-/// Returns the amount (in range (0,1)) of reflection, and the angle of refraction
-/// If None is returned, total internal reflection applies (and no refraction at all)
-/// This applies both fresnel and Snell's law for refraction
-fn refract_fresnel( i : Vec3, n : Vec3, prev_ior : f32, ior : f32 ) -> Option< ( f32, Vec3 ) > {
-  let cosi    = math::clamp( -i.dot( n ), -1.0, 1.0 );
-  let cosi_sq = cosi * cosi;
-  // "Real squares cannot be less than 0" -Dennis
-  let sini_sq = 0.0_f32.max( 1.0 - cosi_sq );
-  let sini    = sini_sq.sqrt( );
+  /// Trace the original ray into the scene (without bounces)
+  pub fn trace_original_bvh( &mut self, ray : &Ray ) {
+    let (d, _) = self.scene.trace( ray );
+    self.num_bvh_hits += d;
+  }
 
-  let snell   = prev_ior / ior;
+  /// Traces an original ray, and produces a color for that ray
+  /// Note that the returned value can exceed (1,1,1), but it's *expected value*
+  ///   is always between (0,0,0) and (1,1,1)
+  pub fn trace_original_color( &mut self, original_ray : &Ray ) -> Vec3 {
+    let scene   = &self.scene;
+    let mut rng = self.rng.borrow_mut( );
+    let has_nee = self.option == RenderType::NormalNEE || self.option == RenderType::PNEE;
 
-  let sint = snell * sini;
+    // The acculumator
+    let mut color      = Vec3::ZERO;
+    let mut throughput = Vec3::new( 1.0, 1.0, 1.0 );
 
-  if sint >= 1.0 { // Total internal reflection
-    None // So, reflection = 1.0
-  } else {
-    // Because sint < 1.0, k > 0.0
-    let k = 1.0 - snell * snell * sini_sq;
+    // Other status structures
+    let mut ray = *original_ray;
+    let mut has_diffuse_bounced = false;
 
-    let cost = 0.0_f32.max( 1.0 - sint * sint ).sqrt( );
+    loop {
+      let (num_bvh_hits, m_hit) = scene.trace( &ray );
+      self.num_bvh_hits += num_bvh_hits;
+  
+      if let Some( hit ) = m_hit {
+        let hit_point = ray.at( hit.distance );
 
-    // s-polarized light
-    let spol = (prev_ior * cosi - ior * cost) / (prev_ior * cosi + ior * cost);
-    // p-polarized light
-    let ppol = (prev_ior * cost - ior * cosi) / (prev_ior * cost + ior * cosi);
+        match hit.mat {
+          PointMaterial::Emissive { intensity } => {
+            if self.is_debug_photons {
+              if !has_diffuse_bounced {
+                color += throughput * intensity;
+              }
+            } else if !has_nee || !has_diffuse_bounced {
+              color += throughput * intensity;
+            } // otherwise NEE is enabled, so ignore it
+            return color;
+          },
+          _ => {
+            let wo = -ray.dir;
+            // A random next direction, with the probability of picking that direction
+            let (wi, pdf) = hit.mat.sample_hemisphere( &mut rng, &wo, &hit.normal );
+            // The contribution of the path
+            let brdf = hit.mat.brdf( &hit.normal, &wo, &wi );
+            let cos_i = wi.dot( hit.normal ); // Geometry term
+            throughput = throughput * brdf.to_vec3( ) * cos_i / pdf;
+            ray = Ray::new( hit_point + wi * EPSILON, wi );
 
-    let frac_refl = 0.5 * (spol * spol + ppol * ppol);
-    let refr_dir  = ( snell * i + (snell * cosi - k.sqrt()) * n ).normalize( );
+            has_diffuse_bounced = true;
 
-    Some( ( frac_refl, refr_dir ) )
+            if has_nee {
+              // Pick a random light source
+
+              let (light_id, light_chance) =
+                if self.option == RenderType::PNEE {
+                  self.photons.sample( &mut rng, hit_point )
+                  // let num_lights = scene.lights.len( );
+                  // (rng.next_in_range( 0, num_lights ), 1.0 / num_lights as f32)
+                } else {
+                  let num_lights = scene.lights.len( );
+                  (rng.next_in_range( 0, num_lights ), 1.0 / num_lights as f32)
+                };
+
+              match scene.lights[ light_id ] {
+                LightEnum::Point { .. } => {
+                  // Point lights are not supported, for now
+                  panic!( "TODO: PointLight" );
+                },
+                LightEnum::Area( light_shape_id ) => {
+                  let light_shape = &scene.shapes[ light_shape_id ];
+
+                  let (point_on_light, light_normal, intensity) = light_shape.pick_random( &mut rng );
+                  let mut to_light = point_on_light - hit_point;
+                  let dis_sq = to_light.len_sq( );
+                  to_light = to_light / dis_sq.sqrt( );
+
+                  let cos_i = to_light.dot( hit.normal );
+                  let cos_o = (-to_light).dot( light_normal );
+
+                  if cos_i > 0.0 && cos_o > 0.0 {
+                    if self.is_debug_photons {
+                      // Physically *inaccurate* light-selection debug render
+                      color += throughput * intensity;
+                    } else {
+                      let (num_bvh_hits, is_occluded) = scene.shadow_ray( &hit_point, &point_on_light, Some( light_shape_id ) );
+                      self.num_bvh_hits += num_bvh_hits;
+
+                      if !is_occluded {
+                        let solid_angle = ( light_shape.surface_area( ) * cos_o ) / dis_sq;
+  
+                        color += throughput * intensity * solid_angle * cos_i * ( 1.0 / light_chance );
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // Russian roulette
+        let keep_chance = throughput.x.max( throughput.y ).max( throughput.z ).min( 0.9 ).max( 0.1 );
+
+        if rng.next( ) < keep_chance {
+          throughput = throughput * ( 1.0 / keep_chance );
+        } else {
+          return color;
+        }
+      } else {
+        color += throughput * scene.background.to_vec3( );
+        return color;
+      }
+    }
   }
 }
