@@ -58,8 +58,8 @@ This starts a HTTP server at [https://localhost:9000/](https://localhost:9000/),
 
 The GUI buttons on the righthand-side are rather self-explanatory. Further controls are:
 
-* WASD to *translate* the camera
-* Arrow keys + PageUp + PageDown to *rotate* the camera
+* WASD + PageUp + PageDown *translate* the camera
+* Arrow keys *rotate* the camera
 
 ## 3. Code Navigation
 The main architecture is divided between the TypeScript part and the Rust part. Rust implements the actual tracing of rays into (hardcoded) scenes. The TypeScript part handles the GUI (buttons + controls), and guides the multi-threading (as browsers can only multi-thread through WebWorkers). The general structure of both parts is outlines below:
@@ -90,9 +90,6 @@ Some important files are described below.
 
 * `client/` - The code running on the main thread
   * `index.ts` - The "main" file
-  * `raytracer/` - The interfaces for the different raytracers
-    * `singlecore.ts` - Spawns a single WASM instance on the main thread, with which it interacts
-    * `multicore.ts` - Spawns 8 WebWorkers, with which it distributes the work and synchronises the results
 * `shared/` - Library code that is shared (w.r.t. the compiler) between the main thread and the workers
 * `worker/` - Code that is running on the webworker
   * `worker.ts` - The "main" file for the webworker. Mainly contains code to handle messages from the main thread
