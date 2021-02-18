@@ -1,8 +1,12 @@
 # Path Tracer
 
-Live demo: [https://raytracer.space/](https://raytracer.space/) (Definitely runs in Google Chrome on Win10)
+Live demo: [https://dennis.life/demo/pathtracer](https://dennis.life/demo/pathtracer) (Definitely runs in Google Chrome on Win10)
 
 This is a path tracer written in Rust, intended to be compiled into WebAssembly (WASM). The included TypeScript Web App periodically invokes the WASM path tracer, and provides a GUI to interact with it.
+
+This project was written as a research prototype for the Utrecht University course [Advanced Graphics](http://www.cs.uu.nl/docs/vakken/magr/2019-2020/index.html).
+
+![Rendered Scene](banner.png)
 
 ## 0. Changes
 The raytracer is converted to a path tracer. This path tracer contains the following special features:
@@ -104,6 +108,7 @@ Some important files are described below.
 * "Stanford bunny" by G. Turk and M. Levoy
 * "Efficient data structures and sampling of many light sources for Next Event Estimation" by Andreas Mikolajewski - On the PNEE
 * "Adaptive Sampling and Reconstruction using Greedy Error Minimization" by F. Rousselle, C. Knaus, and M. Zwicker - On Adaptive Sampling
+* Utrecht University course slides for [Advanced Graphics](http://www.cs.uu.nl/docs/vakken/magr/2019-2020/index.html).
 
 ## 5. License
 The included [fonts](https://fonts.google.com/specimen/Open+Sans) (which I absolutely needed) were published under the [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0).

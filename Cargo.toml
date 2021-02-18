@@ -12,9 +12,9 @@ name = "raytracer-debug"
 path = "src/main.rs"
 
 [dependencies]
-wasm-bindgen = "0.2.54"
+wasm-bindgen = "0.2.70"
 roots        = "0.0.4"
-packed_simd  = "0.3.3"
+packed_simd  = { version = "0.3.4", package = "packed_simd_2" }
 
 [profile.release]
 lto = true

@@ -2,8 +2,8 @@ port module PanelSettings exposing (main)
 
 import Browser
 import Html            exposing
-  (Html, Attribute, h2, hr, br, div, text, span, button, table, tr, td, input)
-import Html.Attributes as Attr exposing (class, id, style, type_)
+  (Html, Attribute, h2, hr, br, div, text, span, button, table, tr, td, input, a)
+import Html.Attributes as Attr exposing (class, href, id, style, type_)
 import Html.Events     exposing (onClick, onInput, onBlur, on, keyCode)
 import String          exposing (fromInt, toInt)
 import Maybe           exposing (withDefault)
@@ -134,6 +134,12 @@ view m =
   div [ class "sidepanel", id "settingspanel" ]
     [ h2 [] [ text "Settings" ]
     , hr [] []
+    , div []
+        [ text "Arrow keys rotate the camera. WASD translates the camera along X and Z. Page Up/Down translates along Y."
+        ]
+
+    , hr [ style "margin-bottom" "15pt" ] []
+
     , span [ style "font-family" "OpenSansLight, Arial", style "text-decoration" "underline" ] [ text "Render Type" ]
     , div []
         [ table []
@@ -255,6 +261,12 @@ view m =
         button [ onClick (SelectRunning False) ] [ text "Pause" ]
       else
         button [ onClick (SelectRunning True) ] [ text "Resume" ]
+    
+    , hr [ style "margin-top" "20pt" ] []
+    
+    , div []
+        [ a [ href "https://github.com/sourcedennis/wasm-pathtracer" ] [ text "Source Code" ]
+        ]
     ]
 
 onEnterDown : Msg -> Attribute Msg
