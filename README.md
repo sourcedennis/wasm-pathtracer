@@ -108,4 +108,6 @@ Some important files are described below.
 * Utrecht University course slides for [Advanced Graphics](http://www.cs.uu.nl/docs/vakken/magr/2019-2020/index.html).
 
 ## 5. License
+BSD-3 - See the `LICENSE` file
+
 The included [fonts](https://fonts.google.com/specimen/Open+Sans) (which I absolutely needed) were published under the [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0).
